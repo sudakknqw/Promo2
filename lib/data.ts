@@ -155,7 +155,7 @@ export function getHoursSummary(): { days: string; hours: string }[] {
 }
 
 export const SLOT_STEP_MIN = 30;
-export const MAX_DAYS_AHEAD = 60;
+export const MAX_DAYS_AHEAD = 90;
 
 export const REVIEWS = [
   {

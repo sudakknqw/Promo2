@@ -1,9 +1,12 @@
-import { NextResponse, type NextRequest } from 'next/server';
+import type { NextRequest } from 'next/server';
 
+import { isSlotAvailable } from '@/lib/availability';
+import { DatabaseError, getActiveBookings } from '@/lib/server/bookings';
 import { checkRateLimit } from '@/lib/server/rate-limit';
+import { getClientIp, jsonNoStore } from '@/lib/server/request';
 import { getSupabaseAdmin } from '@/lib/server/supabase';
 import { notifyTelegram } from '@/lib/server/telegram';
-import { HONEYPOT_FIELD, validateBooking } from '@/lib/validation';
+import { HONEYPOT_FIELD, validateBooking, type BookingData } from '@/lib/validation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,18 +18,32 @@ const MESSAGES = {
   invalid: 'Invalid request.',
   fields: 'Please fix the highlighted fields.',
   rateLimited: 'Too many booking attempts. Please try again in a few minutes.',
+  slotTaken: 'This time was just booked, please pick another',
 } as const;
 
-function reply(body: object, status: number, headers: Record<string, string> = {}) {
-  return NextResponse.json(body, {
-    status,
-    headers: { 'Cache-Control': 'no-store', ...headers },
-  });
+const reply = jsonNoStore;
+
+function slotTaken() {
+  return reply(
+    { ok: false, code: 'slot_taken', error: MESSAGES.slotTaken, fieldErrors: { time: MESSAGES.slotTaken } },
+    409,
+  );
 }
 
-function getClientIp(req: NextRequest): string {
-  const forwarded = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
-  return req.ip ?? forwarded ?? req.headers.get('x-real-ip') ?? 'unknown';
+function slotOf(b: BookingData) {
+  return { date: b.date, time: b.time, barber: b.barberId, durationMin: b.durationMin };
+}
+
+/**
+ * Total order of bookings by creation: created_at (fraction padded to microseconds,
+ * since Postgres trims trailing zeros), then id as a tie-breaker.
+ */
+function creationKey(b: { createdAt: string; id: string }): string {
+  const normalized = b.createdAt.replace(
+    /(\d{2}:\d{2}:\d{2})(?:\.(\d+))?/,
+    (_, hms: string, fraction: string = '') => `${hms}.${fraction.padEnd(6, '0')}`,
+  );
+  return `${normalized}|${b.id}`;
 }
 
 /** Browsers always send Origin on POST; reject if it points at another site. */
@@ -43,7 +60,7 @@ function isAllowedOrigin(req: NextRequest): boolean {
 
 export async function POST(req: NextRequest) {
   // 1. Rate limit by IP (counts every attempt, including invalid ones).
-  const limit = checkRateLimit(getClientIp(req));
+  const limit = checkRateLimit(`booking:${getClientIp(req)}`);
   if (!limit.allowed) {
     return reply({ ok: false, error: MESSAGES.rateLimited }, 429, {
       'Retry-After': String(limit.retryAfterSec),
@@ -87,22 +104,36 @@ export async function POST(req: NextRequest) {
     return reply({ ok: false, error: MESSAGES.fields, fieldErrors: result.errors }, 400);
   }
   const booking = result.data;
+  const slot = slotOf(booking);
+  let bookingId = '';
 
-  // 5. Save. Database details stay in server logs, never in the response.
   try {
-    const { error } = await getSupabaseAdmin().from('bookings').insert({
-      name: booking.name,
-      phone: booking.phone,
-      service: booking.serviceName,
-      barber: booking.barberName,
-      booking_date: booking.date,
-      booking_time: booking.time,
-      comment: booking.comment,
-    });
+    const supabase = getSupabaseAdmin();
 
-    if (error) {
-      console.error(`[booking] insert failed (code: ${error.code ?? 'n/a'})`, error.message);
-      if (error.code === 'PGRST205' || error.code === '42P01') {
+    // 5. Re-check the slot right before saving: it may have been taken since the form loaded.
+    const existing = await getActiveBookings(booking.date, booking.date);
+    if (!isSlotAvailable(slot, existing)) {
+      return slotTaken();
+    }
+
+    // 6. Save. Database details stay in server logs, never in the response.
+    const { data: inserted, error } = await supabase
+      .from('bookings')
+      .insert({
+        name: booking.name,
+        phone: booking.phone,
+        service: booking.serviceName,
+        barber: booking.barberName,
+        booking_date: booking.date,
+        booking_time: booking.time,
+        comment: booking.comment,
+      })
+      .select('id, created_at')
+      .single();
+
+    if (error || !inserted) {
+      console.error(`[booking] insert failed (code: ${error?.code ?? 'n/a'})`, error?.message);
+      if (error?.code === 'PGRST205' || error?.code === '42P01') {
         console.error(
           "[booking] Table 'public.bookings' is not visible to the API. Run supabase/schema.sql in this project, " +
             "or reload the schema cache with: notify pgrst, 'reload schema';",
@@ -110,13 +141,37 @@ export async function POST(req: NextRequest) {
       }
       return reply({ ok: false, error: MESSAGES.generic }, 500);
     }
+
+    // 7. Race guard. Two requests can both pass step 5 at the same moment and both insert.
+    //    Re-read the day: only bookings created before ours count. If one of them now
+    //    conflicts, ours was second, so remove it and report the slot as taken.
+    //    The earlier booking never sees the later one, so exactly one of them survives.
+    const mine = { id: inserted.id as string, createdAt: inserted.created_at as string };
+    bookingId = mine.id;
+    try {
+      const after = await getActiveBookings(booking.date, booking.date);
+      const earlier = after.filter((b) => b.id !== mine.id && creationKey(b) < creationKey(mine));
+
+      if (!isSlotAvailable(slot, earlier)) {
+        const { error: deleteError } = await supabase.from('bookings').delete().eq('id', mine.id);
+        if (deleteError) {
+          console.error(`[booking] could not remove double booking ${mine.id} (code: ${deleteError.code})`);
+        }
+        return slotTaken();
+      }
+    } catch {
+      // The booking passed step 5 and is saved; don't fail it because the re-check query failed.
+      console.warn(`[booking] race re-check skipped for ${mine.id}`);
+    }
   } catch (err) {
-    console.error('[booking] unexpected error', err instanceof Error ? err.message : err);
+    if (!(err instanceof DatabaseError)) {
+      console.error('[booking] unexpected error', err instanceof Error ? err.message : err);
+    }
     return reply({ ok: false, error: MESSAGES.generic }, 500);
   }
 
-  // 6. Notify. Failures are logged inside and never reach the client.
-  await notifyTelegram(booking);
+  // 8. Notify. Failures are logged inside and never reach the client.
+  await notifyTelegram(booking, bookingId);
 
   return reply(
     {

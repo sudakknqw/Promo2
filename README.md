@@ -40,6 +40,20 @@ BookingForm (client) ──POST JSON──▶ /api/booking (Route Handler, Node.
 - `lib/server/*` — импортируют `server-only`: сборка упадёт, если такой модуль попадёт в клиентский код.
 - Время считается по Бангкоку (UTC+7, без перехода на летнее время).
 
+## Telegram: кнопки Confirm / Cancel
+
+Уведомление о записи приходит с кнопками. Нажатие отправляет `callback_query` на
+`POST /api/telegram/webhook`, который:
+
+1. сверяет заголовок `X-Telegram-Bot-Api-Secret-Token` с `TELEGRAM_WEBHOOK_SECRET`;
+2. принимает нажатия только из чата `TELEGRAM_CHAT_ID`;
+3. проверяет `callback_data` (`confirm:<uuid>` / `cancel:<uuid>`);
+4. меняет статус только из `new` (атомарно), иначе отвечает `Already confirmed/cancelled`;
+5. убирает кнопки и дописывает в сообщение `✅ Confirmed` или `❌ Cancelled`.
+
+Вебхук ставится один раз на продакшн-домен через `setWebhook` с `secret_token`
+и `allowed_updates: ["callback_query"]`, проверяется через `getWebhookInfo`.
+
 ## Ограничения
 
 - Rate limit хранится в памяти процесса. На serverless или при нескольких инстансах

@@ -6,6 +6,18 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "start"],
       "port": 3000
+    },
+    {
+      "name": "sharp-barber-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "sharp-barber-webhook-test",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set TELEGRAM_WEBHOOK_SECRET=local-test-secret&& npm run start"],
+      "port": 3000
     }
   ]
 }
