@@ -102,6 +102,12 @@ export async function POST(req: NextRequest) {
 
     if (error) {
       console.error(`[booking] insert failed (code: ${error.code ?? 'n/a'})`, error.message);
+      if (error.code === 'PGRST205' || error.code === '42P01') {
+        console.error(
+          "[booking] Table 'public.bookings' is not visible to the API. Run supabase/schema.sql in this project, " +
+            "or reload the schema cache with: notify pgrst, 'reload schema';",
+        );
+      }
       return reply({ ok: false, error: MESSAGES.generic }, 500);
     }
   } catch (err) {
