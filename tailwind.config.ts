@@ -35,8 +35,9 @@ const config: Config = {
         },
       },
       fontFamily: {
-        display: ['var(--font-display)', 'Impact', 'sans-serif'],
-        sans: ['var(--font-body)', 'system-ui', 'sans-serif'],
+        // Thai glyphs are missing from Oswald and Inter: the browser falls back to Noto Sans Thai per character.
+        display: ['var(--font-display)', 'var(--font-thai)', 'Impact', 'sans-serif'],
+        sans: ['var(--font-body)', 'var(--font-thai)', 'system-ui', 'sans-serif'],
       },
     },
   },

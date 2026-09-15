@@ -15,6 +15,8 @@ function escapeHtml(value: string): string {
 function buildMessage(b: BookingData): string {
   const lines = [
     '✂️ <b>New booking: Sharp Barber Bangkok</b>',
+    // Always English for the owner; this line only says which site version was used.
+    `🌐 <b>Site version:</b> ${b.locale === 'th' ? 'Thai (/th)' : 'English (/en)'}`,
     '',
     '<b>Services:</b>',
     ...b.services.map((s) => `• ${escapeHtml(s.name)}: ${formatPrice(s.priceThb)}, ${formatDuration(s.durationMin)}`),

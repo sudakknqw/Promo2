@@ -5,7 +5,7 @@
 // everything on the server with the same functions. Prices sent by a browser
 // are never read.
 
-import { SERVICES, formatPrice } from './data';
+import { SERVICES } from './data';
 
 export type ServiceLine = { id: string; name: string; priceThb: number; durationMin: number };
 
@@ -30,12 +30,6 @@ export function quoteServices(ids: readonly string[]): Quote {
     totalPriceThb: services.reduce((sum, s) => sum + s.priceThb, 0),
     totalDurationMin: services.reduce((sum, s) => sum + s.durationMin, 0),
   };
-}
-
-/** "2 services · 75 min · ฿850" */
-export function formatQuoteSummary(quote: Quote): string {
-  const count = quote.services.length;
-  return `${count} ${count === 1 ? 'service' : 'services'} · ${quote.totalDurationMin} min · ${formatPrice(quote.totalPriceThb)}`;
 }
 
 /** "Signature Haircut + Beard Trim & Shape" */

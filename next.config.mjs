@@ -1,6 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   poweredByHeader: false,
+  async redirects() {
+    // The site lives under /en and /th.
+    return [{ source: '/', destination: '/en', permanent: false }];
+  },
   async headers() {
     return [
       {

@@ -11,6 +11,7 @@ import {
   SLOT_STEP_MIN,
   formatMinutes,
 } from './data';
+import { DEFAULT_LOCALE, isLocale, type Locale } from './i18n/config';
 import { joinServiceNames, quoteServices, type ServiceLine } from './pricing';
 
 export const LIMITS = {
@@ -35,7 +36,12 @@ export type BookingFields = {
   time: string;
   comment: string;
 };
-export type FieldErrors = Partial<Record<FieldName, string>>;
+/**
+ * A validation problem as a code (see "validation" in the dictionaries) plus values for
+ * the message. The same codes come from the server, so every language shows its own text.
+ */
+export type FieldError = { code: string; params?: Record<string, string | number> };
+export type FieldErrors = Partial<Record<FieldName, FieldError>>;
 
 export type BookingData = {
   name: string;
@@ -51,6 +57,8 @@ export type BookingData = {
   date: string; // YYYY-MM-DD
   time: string; // HH:MM
   comment: string | null;
+  /** Site version the booking came from. */
+  locale: Locale;
 };
 
 export type ValidationResult =
@@ -139,8 +147,6 @@ export function getTimeSlots(
 //   Thai local:     0XX XXX XXXX (mobile) or 02 XXX XXXX (Bangkok landline)
 //   International:  +<country code><number>, 8–15 digits total (E.164)
 // ---------------------------------------------------------------------------
-export const PHONE_HINT = 'e.g. 081 234 5678 or +44 7700 900123';
-
 /** Formats raw input as the user types. Used by the form's input mask. */
 export function maskPhone(input: string): string {
   const trimmed = input.trimStart();
@@ -195,21 +201,22 @@ export function validateBooking(raw: unknown, now: Date = new Date()): Validatio
 
   // Name
   const name = asString(input.name).replace(CONTROL_CHARS, '').replace(/\s+/g, ' ').trim();
+  // Letters from any script count (\p{L}), including Thai vowel and tone marks (\p{M}).
   if (!name) {
-    errors.name = 'Please enter your name.';
+    errors.name = { code: 'required' };
   } else if (name.length < LIMITS.nameMin || name.length > LIMITS.nameMax) {
-    errors.name = `Name must be ${LIMITS.nameMin}–${LIMITS.nameMax} characters.`;
+    errors.name = { code: 'length', params: { min: LIMITS.nameMin, max: LIMITS.nameMax } };
   } else if (!NAME_PATTERN.test(name)) {
-    errors.name = 'Name can only contain letters, spaces, hyphens and apostrophes.';
+    errors.name = { code: 'pattern' };
   }
 
   // Phone
   const phoneRaw = asString(input.phone);
   const phone = normalizePhone(phoneRaw);
   if (!phoneRaw.trim()) {
-    errors.phone = 'Please enter your phone number.';
+    errors.phone = { code: 'required' };
   } else if (!phone) {
-    errors.phone = `Enter a valid phone number, ${PHONE_HINT}.`;
+    errors.phone = { code: 'invalid' };
   }
 
   // Services: ids only. Prices and durations always come from the price list,
@@ -223,41 +230,41 @@ export function validateBooking(raw: unknown, now: Date = new Date()): Validatio
   const serviceIds = rawServices.filter((id): id is string => typeof id === 'string');
   const quote = quoteServices(serviceIds);
   if (rawServices.length === 0) {
-    errors.services = 'Please choose at least one service.';
+    errors.services = { code: 'required' };
   } else if (
     rawServices.length > SERVICES.length ||
     serviceIds.length !== rawServices.length ||
     quote.services.length !== new Set(serviceIds).size
   ) {
-    errors.services = 'Please choose services from the list.';
+    errors.services = { code: 'invalid' };
   }
 
   // Barber
   const barberId = asString(input.barber);
   const barber = BARBERS.find((b) => b.id === barberId);
-  if (!barber && barberId !== ANY_BARBER_ID) errors.barber = 'Please choose a barber.';
+  if (!barber && barberId !== ANY_BARBER_ID) errors.barber = { code: 'required' };
 
   // Date
   const date = asString(input.date).trim();
   const window = getBookingWindow(now);
   const parsedDate = parseDate(date);
   if (!date) {
-    errors.date = 'Please choose a date.';
+    errors.date = { code: 'required' };
   } else if (!parsedDate) {
-    errors.date = 'Please enter a valid date.';
+    errors.date = { code: 'invalid' };
   } else if (date < window.min) {
-    errors.date = 'This date is in the past. Please choose today or later.';
+    errors.date = { code: 'past' };
   } else if (date > window.max) {
-    errors.date = `Bookings are open up to ${MAX_DAYS_AHEAD} days ahead.`;
+    errors.date = { code: 'tooFar', params: { days: MAX_DAYS_AHEAD } };
   }
 
   // Time
   const time = asString(input.time).trim();
   const minutes = parseTime(time);
   if (!time) {
-    errors.time = 'Please choose a time.';
+    errors.time = { code: 'required' };
   } else if (minutes === null) {
-    errors.time = 'Please enter a valid time.';
+    errors.time = { code: 'invalid' };
   } else if (parsedDate && !errors.date) {
     const { open, close } = OPENING_HOURS[parsedDate.getUTCDay()];
     // The whole visit (all services together) must fit before closing.
@@ -265,21 +272,19 @@ export function validateBooking(raw: unknown, now: Date = new Date()): Validatio
     const bkk = bangkokNow(now);
 
     if (minutes < open || minutes + duration > close) {
-      const hours = `On this day we're open ${formatMinutes(open)}–${formatMinutes(close)}.`;
-      errors.time = errors.services
-        ? hours
-        : `${hours} ${quote.services.length === 1 ? 'This service needs' : 'Your services need'} to finish by closing time.`;
+      const code = errors.services ? 'closed' : quote.services.length === 1 ? 'closedOneService' : 'closedServices';
+      errors.time = { code, params: { open: formatMinutes(open), close: formatMinutes(close) } };
     } else if (minutes % SLOT_STEP_MIN !== 0) {
-      errors.time = 'Please choose one of the available times.';
+      errors.time = { code: 'notInList' };
     } else if (date === bkk.date && minutes < bkk.minutes + LIMITS.leadTimeMin) {
-      errors.time = 'This time has already passed. Please choose a later time.';
+      errors.time = { code: 'past' };
     }
   }
 
   // Comment (optional)
   const commentValue = asString(input.comment).replace(CONTROL_CHARS, '').trim();
   if (commentValue.length > LIMITS.commentMax) {
-    errors.comment = `Comment must be ${LIMITS.commentMax} characters or fewer.`;
+    errors.comment = { code: 'tooLong', params: { max: LIMITS.commentMax } };
   }
 
   if (Object.keys(errors).length > 0 || quote.services.length === 0 || !phone) {
@@ -300,6 +305,7 @@ export function validateBooking(raw: unknown, now: Date = new Date()): Validatio
       date,
       time,
       comment: commentValue || null,
+      locale: isLocale(input.locale) ? input.locale : DEFAULT_LOCALE,
     },
   };
 }

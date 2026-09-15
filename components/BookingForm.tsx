@@ -4,24 +4,25 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 
 import { findNextAvailableDate, getSlotStates, type BusyInterval } from '@/lib/availability';
 import { buildBookingEvent, googleCalendarUrl } from '@/lib/calendar';
+import { ANY_BARBER_ID, BARBERS, SERVICES, SHOP, SLOT_STEP_MIN, formatPrice } from '@/lib/data';
+import { LOCALE_SWITCH_EVENT, saveBookingDraft, takeBookingDraft } from '@/lib/i18n/locale-switch';
 import {
-  ANY_BARBER_ID,
-  ANY_BARBER_NAME,
-  BARBERS,
-  SERVICES,
-  SHOP,
-  SLOT_STEP_MIN,
+  barberText,
+  formatDate,
   formatDuration,
-  formatPrice,
-} from '@/lib/data';
-import { formatQuoteSummary, joinServiceNames, quoteServices, type Quote, type ServiceLine } from '@/lib/pricing';
+  formatQuoteSummary,
+  formatServiceCount,
+  formatSlotLabel,
+  interpolate,
+  serviceText,
+  translateFieldError,
+} from '@/lib/i18n/text';
+import { quoteServices, type Quote, type ServiceLine } from '@/lib/pricing';
 import {
   FIELD_ORDER,
   HONEYPOT_FIELD,
   LIMITS,
-  PHONE_HINT,
   addDays,
-  formatDateLong,
   getBookingWindow,
   isValidDate,
   maskPhone,
@@ -31,6 +32,7 @@ import {
   type FieldName,
 } from '@/lib/validation';
 
+import { useI18n } from './I18nProvider';
 import { CalendarIcon } from './icons';
 import MessengerBooking from './MessengerBooking';
 
@@ -40,6 +42,7 @@ type ConfirmedBooking = {
   services: ServiceLine[];
   totalPriceThb: number;
   totalDurationMin: number;
+  barberId: string;
   barberName: string;
   date: string;
   time: string;
@@ -65,6 +68,9 @@ type NextSlotResponse = { ok: true; today: string; slot: Slot | null } | { ok: f
 /** Nearest free slot from the server. `today` is the Bangkok date on the server clock. */
 type Suggestion = { loading: boolean; failed: boolean; today: string | null; slot: Slot | null };
 
+/** What the language switcher carries over to the other locale. */
+type LocaleSwitchDraft = { values: BookingFields; manualSchedule: boolean };
+
 const EMPTY: BookingFields = {
   name: '',
   phone: '',
@@ -75,8 +81,6 @@ const EMPTY: BookingFields = {
   comment: '',
 };
 
-const NETWORK_ERROR = 'We couldn’t reach the server. Check your connection and try again.';
-const SLOT_TAKEN_ERROR = 'This time was just booked, please pick another';
 // Load a couple of weeks at once so a fully booked day can suggest the next free date instantly.
 const LOOKAHEAD_DAYS = 14;
 const AVAILABILITY_DEBOUNCE_MS = 250;
@@ -91,17 +95,11 @@ function withoutScheduleErrors(errors: FieldErrors): FieldErrors {
   return next;
 }
 
-/** "today 15:30", "tomorrow 10:00", "Thu 17 Sept 10:00" */
-function formatSuggestion(slot: Slot, today: string): string {
-  if (slot.date === today) return `today ${slot.time}`;
-  if (slot.date === addDays(today, 1)) return `tomorrow ${slot.time}`;
-  const day = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(
-    new Date(`${slot.date}T00:00:00Z`),
-  );
-  return `${day} ${slot.time}`;
-}
-
 export default function BookingForm() {
+  const { locale, dict } = useI18n();
+  const t = dict.booking;
+  const f = t.form;
+
   const [values, setValues] = useState<BookingFields>(EMPTY);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [submitted, setSubmitted] = useState(false);
@@ -124,6 +122,7 @@ export default function BookingForm() {
   const manualScheduleRef = useRef(false);
   const suggestionRetries = useRef(0);
   const focusTimeWhenLoaded = useRef(false);
+  const valuesRef = useRef(values);
 
   useEffect(() => setDateBounds(getBookingWindow()), []);
 
@@ -181,6 +180,27 @@ export default function BookingForm() {
   useEffect(() => {
     suggestionRetries.current = 0;
   }, [servicesKey, values.barber]);
+
+  // ---------------------------------------------------------------------------
+  // Language switch: keep what the visitor has entered
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    valuesRef.current = values;
+  }, [values]);
+
+  useEffect(() => {
+    const save = () =>
+      saveBookingDraft<LocaleSwitchDraft>({ values: valuesRef.current, manualSchedule: manualScheduleRef.current });
+    window.addEventListener(LOCALE_SWITCH_EVENT, save);
+    return () => window.removeEventListener(LOCALE_SWITCH_EVENT, save);
+  }, []);
+
+  useEffect(() => {
+    const draft = takeBookingDraft<LocaleSwitchDraft>();
+    if (!draft) return;
+    setValues({ ...EMPTY, ...draft.values });
+    if (draft.manualSchedule) markManualSchedule();
+  }, [markManualSchedule]);
 
   // ---------------------------------------------------------------------------
   // Availability
@@ -283,6 +303,11 @@ export default function BookingForm() {
   // ---------------------------------------------------------------------------
   // Form
   // ---------------------------------------------------------------------------
+  const errorText = (field: FieldName) => translateFieldError(field, errors[field], dict);
+  const barberName = (id: string, fallback = '') =>
+    id === ANY_BARBER_ID ? f.anyBarber : barberText(dict, id)?.name ?? fallback;
+  const serviceNames = (lines: readonly { id: string }[]) => lines.map((s) => serviceText(dict, s.id).name).join(' + ');
+
   function update<K extends FieldName>(field: K, value: BookingFields[K]) {
     if (field === 'date' || field === 'time') markManualSchedule();
     const next = { ...values, [field]: value };
@@ -307,7 +332,7 @@ export default function BookingForm() {
   }
 
   function focusFirstError(fieldErrors: FieldErrors) {
-    const first = FIELD_ORDER.find((f) => fieldErrors[f]);
+    const first = FIELD_ORDER.find((field) => fieldErrors[field]);
     if (first) formRef.current?.querySelector<HTMLElement>(`[name="${first}"]`)?.focus();
   }
 
@@ -332,8 +357,8 @@ export default function BookingForm() {
       const res = await fetch('/api/booking', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Only service ids are sent. Prices and totals are calculated on the server.
-        body: JSON.stringify({ ...values, [HONEYPOT_FIELD]: honeypot }),
+        // Only service ids are sent; prices are calculated on the server. The locale is for the owner's note.
+        body: JSON.stringify({ ...values, locale, [HONEYPOT_FIELD]: honeypot }),
       });
       const data = (await res.json().catch(() => null)) as ApiResponse | null;
 
@@ -346,6 +371,7 @@ export default function BookingForm() {
             services: d.services,
             totalPriceThb: d.totalPriceThb,
             totalDurationMin: d.totalDurationMin,
+            barberId: d.barberId,
             barberName: d.barberName,
             date: d.date,
             time: d.time,
@@ -356,21 +382,22 @@ export default function BookingForm() {
         return;
       }
 
+      const code = data && !data.ok ? data.code : undefined;
+
       // Someone else took the slot between loading it and submitting.
-      if (res.status === 409 || (data && !data.ok && data.code === 'slot_taken')) {
-        const message = (data && !data.ok && data.error) || SLOT_TAKEN_ERROR;
+      if (res.status === 409 || code === 'slot_taken') {
         setValues((v) => ({ ...v, time: '' }));
         setStatus('error');
         void loadAvailability(values.date);
 
         if (manualScheduleRef.current) {
-          setErrors({ time: message });
-          setFormError(message);
+          setErrors({ time: { code: 'taken' } });
+          setFormError(t.errors.slotTaken);
           focusTimeWhenLoaded.current = true;
         } else {
           // The time was auto-filled: offer the next nearest one right away.
           setErrors({});
-          setFormError(`${message}. We’ve selected the next available time for you.`);
+          setFormError(t.errors.slotTakenAuto);
           suggestionRetries.current = 0;
           setSuggestionNonce((n) => n + 1);
         }
@@ -381,10 +408,18 @@ export default function BookingForm() {
         setErrors(data.fieldErrors);
         focusFirstError(data.fieldErrors);
       }
-      setFormError(data && !data.ok && data.error ? data.error : 'Something went wrong. Please try again.');
+      setFormError(
+        res.status === 429 || code === 'rate_limited'
+          ? t.errors.rateLimited
+          : code === 'invalid_fields'
+            ? t.errors.invalidFields
+            : res.status >= 500 || code === 'server_error'
+              ? t.errors.server
+              : t.errors.unknown,
+      );
       setStatus('error');
     } catch {
-      setFormError(NETWORK_ERROR);
+      setFormError(t.errors.network);
       setStatus('error');
     }
   }
@@ -403,9 +438,16 @@ export default function BookingForm() {
   }
 
   if (status === 'success' && confirmed) {
+    const s = t.success;
+    const names = serviceNames(confirmed.services);
+    const bookedBarber = barberName(confirmed.barberId, confirmed.barberName);
     const calendarEvent = buildBookingEvent({
-      serviceName: joinServiceNames(confirmed.services),
-      barberName: confirmed.barberName,
+      title: interpolate(t.calendar.title, { services: names }),
+      description: [
+        interpolate(t.calendar.barber, { barber: bookedBarber }),
+        interpolate(t.calendar.phone, { phone: SHOP.phoneDisplay }),
+      ].join('\n'),
+      location: [dict.shop.name, dict.shop.address.line1, dict.shop.address.line2, dict.shop.address.city].join(', '),
       date: confirmed.date,
       time: confirmed.time,
       durationMin: confirmed.totalDurationMin,
@@ -425,34 +467,32 @@ export default function BookingForm() {
           </svg>
         </div>
         <h3 className="mt-5 font-display text-3xl uppercase tracking-wide text-beige-50">
-          You’re booked, {confirmed.name.split(' ')[0]}!
+          {interpolate(s.title, { name: confirmed.name.split(' ')[0] })}
         </h3>
-        <p className="mt-2 text-beige-300">
-          We’ve received your request and will confirm by phone or LINE shortly. Here are the details:
-        </p>
+        <p className="mt-2 text-beige-300">{s.text}</p>
 
         <dl className="mt-6 divide-y divide-graphite-600 rounded-xl border border-graphite-600 text-sm">
-          <SummaryRow label={confirmed.services.length === 1 ? 'Service' : 'Services'}>
+          <SummaryRow label={confirmed.services.length === 1 ? s.service : s.services}>
             <ul className="space-y-1">
-              {confirmed.services.map((s) => (
-                <li key={s.id} className="flex justify-between gap-4">
-                  <span>{s.name}</span>
-                  <span className="shrink-0 tabular-nums text-beige-300">{formatPrice(s.priceThb)}</span>
+              {confirmed.services.map((line) => (
+                <li key={line.id} className="flex justify-between gap-4">
+                  <span>{serviceText(dict, line.id).name}</span>
+                  <span className="shrink-0 tabular-nums text-beige-300">{formatPrice(line.priceThb)}</span>
                 </li>
               ))}
             </ul>
           </SummaryRow>
-          <SummaryRow label="Total">
+          <SummaryRow label={s.total}>
             <span className="font-semibold text-ochre-300">{formatPrice(confirmed.totalPriceThb)}</span> ·{' '}
-            {formatDuration(confirmed.totalDurationMin)}
+            {formatDuration(confirmed.totalDurationMin, dict)}
           </SummaryRow>
-          <SummaryRow label="Barber">{confirmed.barberName}</SummaryRow>
-          <SummaryRow label="Date & time">
-            {formatDateLong(confirmed.date)} at {confirmed.time}
+          <SummaryRow label={s.barber}>{bookedBarber}</SummaryRow>
+          <SummaryRow label={s.dateTime}>
+            {interpolate(s.dateTimeValue, { date: formatDate(confirmed.date, locale, dict), time: confirmed.time })}
           </SummaryRow>
-          <SummaryRow label="Name">{confirmed.name}</SummaryRow>
-          <SummaryRow label="Phone">{confirmed.phone}</SummaryRow>
-          {confirmed.comment && <SummaryRow label="Comment">{confirmed.comment}</SummaryRow>}
+          <SummaryRow label={s.name}>{confirmed.name}</SummaryRow>
+          <SummaryRow label={s.phone}>{confirmed.phone}</SummaryRow>
+          {confirmed.comment && <SummaryRow label={s.comment}>{confirmed.comment}</SummaryRow>}
         </dl>
 
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
@@ -463,24 +503,23 @@ export default function BookingForm() {
             className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-graphite-500 px-5 text-sm font-semibold text-beige-100 transition hover:border-ochre-400 hover:text-ochre-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ochre-400 sm:w-auto"
           >
             <CalendarIcon className="h-4 w-4" />
-            Add to calendar
-            <span className="sr-only">(Google Calendar, opens in a new tab)</span>
+            {s.addToCalendar}
+            <span className="sr-only">{s.addToCalendarHint}</span>
           </a>
         </div>
 
         <p className="mt-6 text-sm text-beige-400">
-          Need to change something? Call us at{' '}
+          {s.changeHint}{' '}
           <a href={SHOP.phoneHref} className="text-ochre-300 underline underline-offset-4">
             {SHOP.phoneDisplay}
           </a>
-          .
         </p>
         <button
           type="button"
           onClick={reset}
           className="mt-6 inline-flex min-h-12 items-center rounded-full border border-beige-300/40 px-6 font-semibold text-beige-100 transition hover:border-ochre-400 hover:text-ochre-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ochre-400"
         >
-          Make another booking
+          {s.another}
         </button>
       </div>
     );
@@ -497,36 +536,30 @@ export default function BookingForm() {
     values.date === suggestedSlot.date &&
     values.time === suggestedSlot.time;
 
-  let timePlaceholder = 'Choose a time';
-  if (!values.date) timePlaceholder = 'Pick a date first';
-  else if (fullyBooked) timePlaceholder = 'Fully booked';
-  else if (noFreeTimes || (values.date && slotStates.length === 0)) timePlaceholder = 'No times available';
+  let timePlaceholder = f.slots.choose;
+  if (!values.date) timePlaceholder = f.slots.pickDateFirst;
+  else if (fullyBooked) timePlaceholder = f.slots.fullyBooked;
+  else if (noFreeTimes || (values.date && slotStates.length === 0)) timePlaceholder = f.slots.noTimes;
 
   let timeHint: string | undefined;
   if (availabilityFailed) {
-    timeHint =
-      slotStates.length > 0
-        ? 'We couldn’t check which times are taken. Your time will be confirmed when you book.'
-        : 'No times left on this day. Please pick another date.';
+    timeHint = slotStates.length > 0 ? f.slots.availabilityFailed : f.slots.noTimesLeftHint;
   }
 
   const dayNotice = noFreeTimes ? (
     <div role="status" className="mt-3 rounded-xl border border-ochre-500/40 bg-ochre-400/10 p-4 text-sm">
-      <p className="font-semibold text-beige-50">
-        {fullyBooked ? 'Fully booked, try another day' : 'No times left on this day, try another day'}
-      </p>
+      <p className="font-semibold text-beige-50">{fullyBooked ? f.dayNotice.fullyBooked : f.dayNotice.noTimesLeft}</p>
       {nextAvailableDate ? (
         <button
           type="button"
           onClick={() => update('date', nextAvailableDate)}
           className="mt-2 inline-flex min-h-11 items-center text-left font-semibold text-ochre-300 underline underline-offset-4 transition hover:text-ochre-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ochre-400"
         >
-          Next available: {formatDateLong(nextAvailableDate)} →
+          {interpolate(f.dayNotice.nextAvailable, { date: formatDate(nextAvailableDate, locale, dict) })}
         </button>
       ) : (
         <p className="mt-1 text-beige-300">
-          No free times in the next 2 weeks{values.barber !== ANY_BARBER_ID ? ' with this barber' : ''}. Try{' '}
-          {values.barber !== ANY_BARBER_ID ? 'another barber or ' : ''}call us.
+          {values.barber !== ANY_BARBER_ID ? f.dayNotice.noneInTwoWeeksBarber : f.dayNotice.noneInTwoWeeks}
         </p>
       )}
     </div>
@@ -537,17 +570,19 @@ export default function BookingForm() {
     if (isAutoFilled && suggestedSlot && suggestion.today) {
       suggestionNotice = (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-ochre-500/40 bg-ochre-400/10 px-4 py-2 text-sm">
-          <span className="flex items-center gap-2 text-beige-100">
+          <span className="flex flex-wrap items-center gap-x-2 text-beige-100">
             {suggestion.loading && <Spinner className="h-4 w-4 text-ochre-400" />}
-            Nearest available:{' '}
-            <strong className="font-semibold text-ochre-300">{formatSuggestion(suggestedSlot, suggestion.today)}</strong>
+            {f.suggestion.nearest}
+            <strong className="font-semibold text-ochre-300">
+              {formatSlotLabel(suggestedSlot, suggestion.today, addDays(suggestion.today, 1), locale, dict)}
+            </strong>
           </span>
           <button
             type="button"
             onClick={chooseTimeManually}
             className="inline-flex min-h-11 items-center font-semibold text-beige-200 underline underline-offset-4 transition hover:text-ochre-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ochre-400"
           >
-            choose another time
+            {f.suggestion.chooseAnother}
           </button>
         </div>
       );
@@ -555,17 +590,13 @@ export default function BookingForm() {
       suggestionNotice = (
         <p className="flex min-h-11 items-center gap-2 text-sm text-beige-400">
           <Spinner className="h-4 w-4 text-ochre-400" />
-          Finding the nearest available time…
+          {f.suggestion.finding}
         </p>
       );
     } else if (!suggestion.failed && suggestion.today && !suggestedSlot) {
       suggestionNotice = (
         <p className="rounded-xl border border-graphite-600 px-4 py-3 text-sm text-beige-300">
-          No free times in the next 14 days. Pick a later date below or call us at{' '}
-          <a href={SHOP.phoneHref} className="text-ochre-300 underline underline-offset-4">
-            {SHOP.phoneDisplay}
-          </a>
-          .
+          {interpolate(f.suggestion.none, { phone: SHOP.phoneDisplay })}
         </p>
       );
     }
@@ -580,21 +611,21 @@ export default function BookingForm() {
       className="relative rounded-2xl border border-graphite-600 bg-graphite-800 p-5 sm:p-8"
     >
       <div className="grid gap-5 sm:grid-cols-2">
-        <Field label="Your name" name="name" error={errors.name}>
+        <Field label={f.name} name="name" error={errorText('name')}>
           {(p) => (
             <input
               {...p}
               type="text"
               autoComplete="name"
               maxLength={LIMITS.nameMax}
-              placeholder="e.g. Somchai Jaidee"
+              placeholder={f.namePlaceholder}
               value={values.name}
               onChange={(e) => update('name', e.target.value)}
             />
           )}
         </Field>
 
-        <Field label="Phone" name="phone" error={errors.phone} hint={errors.phone ? undefined : PHONE_HINT}>
+        <Field label={f.phone} name="phone" error={errorText('phone')} hint={errors.phone ? undefined : f.phoneHint}>
           {(p) => (
             <input
               {...p}
@@ -613,7 +644,7 @@ export default function BookingForm() {
           aria-describedby={errors.services ? 'booking-services-error' : 'booking-services-summary'}
         >
           <legend className="mb-2 text-sm font-semibold text-beige-100">
-            Services <span className="font-normal text-beige-400">(choose one or more)</span>
+            {f.services} <span className="font-normal text-beige-400">{f.servicesHint}</span>
           </legend>
 
           {/* The summary is the last child of this wrapper, so on mobile it sticks to the
@@ -646,8 +677,10 @@ export default function BookingForm() {
                         className="h-5 w-5 shrink-0 cursor-pointer accent-ochre-400"
                       />
                       <span className="min-w-0 flex-1">
-                        <span className="block font-semibold leading-snug text-beige-50">{service.name}</span>
-                        <span className="block text-xs text-beige-400">{formatDuration(service.durationMin)}</span>
+                        <span className="block font-semibold leading-snug text-beige-50">
+                          {serviceText(dict, service.id).name}
+                        </span>
+                        <span className="block text-xs text-beige-400">{formatDuration(service.durationMin, dict)}</span>
                       </span>
                       <span className="shrink-0 font-semibold tabular-nums text-beige-100">
                         {formatPrice(service.priceThb)}
@@ -661,7 +694,7 @@ export default function BookingForm() {
             {errors.services && (
               <p id="booking-services-error" className="mt-2 flex items-start gap-1.5 text-sm text-danger">
                 <span aria-hidden>!</span>
-                {errors.services}
+                {errorText('services')}
               </p>
             )}
 
@@ -670,15 +703,18 @@ export default function BookingForm() {
         </fieldset>
 
         <div className="sm:col-span-2">
-          <Field label="Barber" name="barber" error={errors.barber}>
+          <Field label={f.barber} name="barber" error={errorText('barber')}>
             {(p) => (
               <select {...p} value={values.barber} onChange={(e) => update('barber', e.target.value)}>
-                <option value={ANY_BARBER_ID}>{ANY_BARBER_NAME}</option>
-                {BARBERS.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name} · {b.role}
-                  </option>
-                ))}
+                <option value={ANY_BARBER_ID}>{f.anyBarber}</option>
+                {BARBERS.map((b) => {
+                  const text = barberText(dict, b.id);
+                  return (
+                    <option key={b.id} value={b.id}>
+                      {text.name} · {text.role}
+                    </option>
+                  );
+                })}
               </select>
             )}
           </Field>
@@ -689,7 +725,7 @@ export default function BookingForm() {
           {suggestionNotice}
         </div>
 
-        <Field label="Date" name="date" error={errors.date}>
+        <Field label={f.date} name="date" error={errorText('date')}>
           {(p) => (
             <input
               {...p}
@@ -702,7 +738,7 @@ export default function BookingForm() {
           )}
         </Field>
 
-        <Field label="Time" name="time" error={errors.time} hint={timeHint} footer={dayNotice}>
+        <Field label={f.time} name="time" error={errorText('time')} hint={timeHint} footer={dayNotice}>
           {(p) =>
             slotsLoading ? (
               <div
@@ -711,7 +747,7 @@ export default function BookingForm() {
                 className="flex min-h-12 items-center gap-3 rounded-xl border border-graphite-600 bg-graphite-900 px-4 text-sm text-beige-400"
               >
                 <Spinner className="h-4 w-4 text-ochre-400" />
-                Checking available times…
+                {f.slots.checking}
               </div>
             ) : (
               <select
@@ -723,9 +759,9 @@ export default function BookingForm() {
                 <option value="" disabled>
                   {timePlaceholder}
                 </option>
-                {slotStates.map((s) => (
-                  <option key={s.time} value={s.time} disabled={s.booked}>
-                    {s.booked ? `${s.time} · booked` : s.time}
+                {slotStates.map((slot) => (
+                  <option key={slot.time} value={slot.time} disabled={slot.booked}>
+                    {slot.booked ? interpolate(f.slots.booked, { time: slot.time }) : slot.time}
                   </option>
                 ))}
               </select>
@@ -735,10 +771,10 @@ export default function BookingForm() {
 
         <div className="sm:col-span-2">
           <Field
-            label="Comment"
-            optional
+            label={f.comment}
+            optionalLabel={f.optional}
             name="comment"
-            error={errors.comment}
+            error={errorText('comment')}
             counter={`${values.comment.length}/${LIMITS.commentMax}`}
           >
             {(p) => (
@@ -746,7 +782,7 @@ export default function BookingForm() {
                 {...p}
                 rows={3}
                 maxLength={LIMITS.commentMax}
-                placeholder="Anything we should know? Style references, allergies, first visit…"
+                placeholder={f.commentPlaceholder}
                 value={values.comment}
                 onChange={(e) => update('comment', e.target.value)}
                 className={`${p.className} resize-y`}
@@ -756,9 +792,9 @@ export default function BookingForm() {
         </div>
       </div>
 
-      {/* Honeypot: hidden from people and assistive tech, tempting for bots. */}
+      {/* Honeypot: hidden from people and assistive tech, tempting for bots. Not translated on purpose. */}
       <div aria-hidden="true" className="absolute -left-[9999px] h-px w-px overflow-hidden">
-        <label htmlFor={HONEYPOT_FIELD}>Leave this field empty</label>
+        <label htmlFor={HONEYPOT_FIELD}>Website</label>
         <input
           id={HONEYPOT_FIELD}
           name={HONEYPOT_FIELD}
@@ -789,11 +825,9 @@ export default function BookingForm() {
         className="mt-6 inline-flex min-h-14 w-full items-center justify-center gap-3 rounded-full bg-ochre-400 px-8 text-base font-bold uppercase tracking-wider text-graphite-950 transition hover:bg-ochre-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ochre-400 disabled:cursor-wait disabled:opacity-80 sm:w-auto"
       >
         {submitting && <Spinner className="h-5 w-5" />}
-        {submitting ? 'Booking…' : 'Confirm booking'}
+        {submitting ? f.submitting : f.submit}
       </button>
-      <p className="mt-4 text-xs text-beige-400">
-        By booking you agree that we may contact you about this appointment. Pay at the shop, no deposit needed.
-      </p>
+      <p className="mt-4 text-xs text-beige-400">{f.consent}</p>
 
       {/* The auto-filled nearest time counts only once the user has chosen something themselves;
           with an untouched form the message stays generic. */}
@@ -812,6 +846,8 @@ export default function BookingForm() {
 
 /** Selected services, total duration and total price. Sticky at the bottom of the screen on mobile. */
 function QuoteSummary({ quote }: { quote: Quote }) {
+  const { dict } = useI18n();
+  const q = dict.booking.form.quote;
   const count = quote.services.length;
   const price = useAnimatedNumber(quote.totalPriceThb);
   const minutes = useAnimatedNumber(quote.totalDurationMin);
@@ -823,19 +859,22 @@ function QuoteSummary({ quote }: { quote: Quote }) {
     >
       {/* Screen readers get the final numbers once, not every animation frame. */}
       <p className="sr-only" aria-live="polite">
-        {count > 0 ? formatQuoteSummary(quote) : 'No services selected'}
+        {count > 0 ? formatQuoteSummary(quote, dict, formatPrice) : q.noneSelected}
       </p>
 
       {count === 0 ? (
         <p aria-hidden className="text-sm text-beige-400">
-          Choose at least one service to see the total.
+          {q.empty}
         </p>
       ) : (
         <div aria-hidden>
-          <p className="line-clamp-2 text-sm text-beige-300">{joinServiceNames(quote.services)}</p>
+          <p className="line-clamp-2 text-sm text-beige-300">
+            {quote.services.map((s) => serviceText(dict, s.id).name).join(' + ')}
+          </p>
           <p className="mt-1 flex flex-wrap items-baseline justify-between gap-x-3 text-beige-100">
             <span className="text-sm">
-              {count} {count === 1 ? 'service' : 'services'} · <span className="tabular-nums">{minutes}</span> min ·
+              {formatServiceCount(count, dict)} ·{' '}
+              <span className="tabular-nums">{interpolate(dict.time.minutes, { m: minutes })}</span> ·
             </span>
             <span className="font-display text-2xl font-semibold tabular-nums text-ochre-300">{formatPrice(price)}</span>
           </p>
@@ -845,7 +884,10 @@ function QuoteSummary({ quote }: { quote: Quote }) {
   );
 }
 
-/** Counts smoothly to a new value. Instant when the user prefers reduced motion. */
+/**
+ * Counts smoothly to a new value. Instant when the user prefers reduced motion,
+ * or when the page is hidden (browsers pause animation frames there).
+ */
 function useAnimatedNumber(value: number, durationMs = 300): number {
   const [display, setDisplay] = useState(value);
   const current = useRef(value);
@@ -854,7 +896,7 @@ function useAnimatedNumber(value: number, durationMs = 300): number {
     const from = current.current;
     if (from === value) return;
 
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (document.hidden || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       current.current = value;
       setDisplay(value);
       return;
@@ -889,7 +931,7 @@ function Field({
   name,
   error,
   hint,
-  optional,
+  optionalLabel,
   counter,
   footer,
   children,
@@ -898,7 +940,7 @@ function Field({
   name: FieldName;
   error?: string;
   hint?: string;
-  optional?: boolean;
+  optionalLabel?: string;
   counter?: string;
   footer?: ReactNode;
   children: (props: ControlProps) => ReactNode;
@@ -919,7 +961,7 @@ function Field({
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <label htmlFor={id} className="text-sm font-semibold text-beige-100">
           {label}
-          {optional && <span className="ml-1 font-normal text-beige-400">(optional)</span>}
+          {optionalLabel && <span className="ml-1 font-normal text-beige-400">{optionalLabel}</span>}
         </label>
         {counter && <span className="text-xs tabular-nums text-beige-400">{counter}</span>}
       </div>

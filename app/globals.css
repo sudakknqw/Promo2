@@ -14,6 +14,13 @@
     @apply bg-graphite-900 font-sans text-beige-100 antialiased;
   }
 
+  /* Thai: Noto Sans Thai for body text (it has Latin too, so mixed lines match),
+     and more line height, because stacked vowel and tone marks need room. */
+  :lang(th) body {
+    font-family: var(--font-thai), var(--font-body), system-ui, sans-serif;
+    line-height: 1.7;
+  }
+
   ::selection {
     @apply bg-ochre-400 text-graphite-950;
   }
@@ -60,5 +67,34 @@
 
   .eyebrow {
     @apply text-xs font-semibold uppercase tracking-[0.25em] text-ochre-400;
+  }
+}
+
+@layer utilities {
+  /* Thai typography.
+     - Tight leading from the Latin design makes Thai lines collide.
+     - Letter-spacing pulls vowel and tone marks away from their consonants.
+     - Thai has no spaces between words, so balance headings to avoid one-word last lines. */
+  :lang(th) .leading-none,
+  :lang(th) .leading-tight,
+  :lang(th) .leading-snug,
+  :lang(th) .leading-\[0\.9\] {
+    line-height: 1.35;
+  }
+
+  :lang(th) .leading-relaxed {
+    line-height: 1.85;
+  }
+
+  :lang(th) [class*='tracking-'],
+  :lang(th) .eyebrow,
+  :lang(th) .btn-primary {
+    letter-spacing: normal;
+  }
+
+  :lang(th) h1,
+  :lang(th) h2,
+  :lang(th) h3 {
+    text-wrap: balance;
   }
 }

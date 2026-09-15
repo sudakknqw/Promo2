@@ -1,0 +1,298 @@
+{
+  "meta": {
+    "title": "Sharp Barber Bangkok | Haircuts, Fades & Hot Towel Shaves",
+    "description": "Barbershop on Sukhumvit Soi 11, Bangkok. Precision haircuts, skin fades, beard trims and straight razor shaves. Book online in a minute. Demo project."
+  },
+  "language": {
+    "label": "Language",
+    "codes": { "en": "EN", "th": "TH" },
+    "names": { "en": "English", "th": "ไทย" }
+  },
+  "common": {
+    "skipToContent": "Skip to content",
+    "backToTop": "{name}, back to top",
+    "call": "Call",
+    "callUsAt": "Call us at {phone}",
+    "line": "LINE",
+    "messageOnLine": "Message us on LINE (opens in a new tab)",
+    "bookNow": "Book now",
+    "opensInNewTab": "{label} (opens in a new tab)"
+  },
+  "shop": {
+    "name": "Sharp Barber Bangkok",
+    "brand": "Sharp Barber",
+    "slogan": "Clean fades. Hot towels. No rush.",
+    "area": "Sukhumvit Soi 11 · Bangkok",
+    "address": {
+      "line1": "88 Sukhumvit Soi 11",
+      "line2": "Khlong Toei Nuea, Watthana",
+      "city": "Bangkok 10110, Thailand"
+    }
+  },
+  "nav": {
+    "label": "Primary",
+    "services": "Services",
+    "barbers": "Barbers",
+    "reviews": "Reviews",
+    "location": "Location"
+  },
+  "time": {
+    "daysLong": ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+    "daysShort": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+    "minutes": "{m} min",
+    "hours": "{h} h",
+    "hoursMinutes": "{h} h {m} min",
+    "today": "today",
+    "tomorrow": "tomorrow"
+  },
+  "hero": {
+    "imageAlt": "Interior of Sharp Barber Bangkok with black leather barber chairs, steel workstations and artwork on dark walls",
+    "titleTop": "Sharp Barber",
+    "titleBottom": "Bangkok",
+    "seeServices": "See services & prices",
+    "openingHours": "Opening hours"
+  },
+  "services": {
+    "eyebrow": "Services & prices",
+    "title": "Pick your chair time",
+    "intro": "Every service includes a consultation, a hot towel finish and a cold drink on the house. Prices in Thai baht.",
+    "items": {
+      "haircut": {
+        "name": "Signature Haircut",
+        "description": "Consultation, precision cut, wash and styling.",
+        "alt": "Barber cutting a client’s hair with scissors and a comb above a skin fade"
+      },
+      "beard": {
+        "name": "Beard Trim & Shape",
+        "description": "Clipper shaping, sharp line-up and beard oil.",
+        "alt": "Barber shaping a client’s full beard with a red cordless trimmer"
+      },
+      "shave": {
+        "name": "Hot Towel Razor Shave",
+        "description": "Hot towels, rich lather and a straight razor finish.",
+        "alt": "Client with a moustache reclining while shaving cream is applied before a razor shave"
+      },
+      "cut-beard": {
+        "name": "Cut & Beard Combo",
+        "description": "Signature haircut plus beard trim, with a razor-clean neckline.",
+        "alt": "Barber cleaning up a client’s neckline with a straight razor"
+      },
+      "royal": {
+        "name": "The Royal Treatment",
+        "description": "Haircut and full hot towel shave. Our most relaxing hour and a half.",
+        "alt": "Client under a warm towel receiving a straight razor shave"
+      },
+      "kids": {
+        "name": "Kids Haircut",
+        "description": "For ages 12 and under. Patient barbers, no tears.",
+        "alt": "Barber trimming a young boy’s hair with clippers and a comb"
+      }
+    }
+  },
+  "barbers": {
+    "eyebrow": "The team",
+    "title": "Meet your barbers",
+    "intro": "Three chairs, three specialists. Pick your favourite when booking, or let us match you with whoever is free.",
+    "items": {
+      "krit": {
+        "name": "Krit “Kay” Wongsa",
+        "role": "Head Barber",
+        "specialty": "Textured crops, mullets and modern scissor work",
+        "alt": "Portrait of barber Krit in a black polo and denim apron, standing next to a barber chair"
+      },
+      "mateo": {
+        "name": "Mateo Rivera",
+        "role": "Senior Barber",
+        "specialty": "Classic pompadours, beard sculpting and hot towel shaves",
+        "alt": "Portrait of barber Mateo with a goatee and tattooed forearms, seated in a leather barber chair"
+      },
+      "ton": {
+        "name": "Ton Saelim",
+        "role": "Fade Specialist",
+        "specialty": "Skin fades, tapers and sharp line-ups",
+        "alt": "Barber Ton in a bucket hat and glasses fading a client’s hair with clippers"
+      }
+    }
+  },
+  "booking": {
+    "eyebrow": "Online booking",
+    "title": "Book your appointment",
+    "intro": "No account, no deposit. Walk-ins are welcome too, but booked clients always come first.",
+    "steps": [
+      { "title": "Send your request", "text": "Choose a service, barber and time. It takes under a minute." },
+      { "title": "We confirm", "text": "Our team checks the schedule and confirms by phone or LINE." },
+      { "title": "Take a seat", "text": "Arrive five minutes early. Pay at the shop, cash or card." }
+    ],
+    "talkToHuman": "Prefer to talk to a human?",
+    "chatOnLine": "Chat on LINE",
+    "form": {
+      "name": "Your name",
+      "namePlaceholder": "e.g. Somchai Jaidee",
+      "phone": "Phone",
+      "phoneHint": "e.g. 081 234 5678 or +44 7700 900123",
+      "services": "Services",
+      "servicesHint": "(choose one or more)",
+      "barber": "Barber",
+      "anyBarber": "Any available barber",
+      "date": "Date",
+      "time": "Time",
+      "comment": "Comment",
+      "optional": "(optional)",
+      "commentPlaceholder": "Anything we should know? Style references, allergies, first visit…",
+      "submit": "Confirm booking",
+      "submitting": "Booking…",
+      "consent": "By booking you agree that we may contact you about this appointment. Pay at the shop, no deposit needed.",
+      "quote": {
+        "empty": "Choose at least one service to see the total.",
+        "noneSelected": "No services selected",
+        "countOne": "{count} service",
+        "countOther": "{count} services"
+      },
+      "slots": {
+        "pickDateFirst": "Pick a date first",
+        "choose": "Choose a time",
+        "fullyBooked": "Fully booked",
+        "noTimes": "No times available",
+        "checking": "Checking available times…",
+        "booked": "{time} · booked",
+        "availabilityFailed": "We couldn’t check which times are taken. Your time will be confirmed when you book.",
+        "noTimesLeftHint": "No times left on this day. Please pick another date."
+      },
+      "dayNotice": {
+        "fullyBooked": "Fully booked, try another day",
+        "noTimesLeft": "No times left on this day, try another day",
+        "nextAvailable": "Next available: {date} →",
+        "noneInTwoWeeks": "No free times in the next 2 weeks. Try calling us.",
+        "noneInTwoWeeksBarber": "No free times in the next 2 weeks with this barber. Try another barber or call us."
+      },
+      "suggestion": {
+        "nearest": "Nearest available:",
+        "chooseAnother": "choose another time",
+        "finding": "Finding the nearest available time…",
+        "none": "No free times in the next 14 days. Pick a later date below or call us at {phone}."
+      }
+    },
+    "errors": {
+      "invalidFields": "Please fix the highlighted fields.",
+      "slotTaken": "This time was just booked, please pick another",
+      "slotTakenAuto": "This time was just booked, please pick another. We’ve selected the next available time for you.",
+      "rateLimited": "Too many booking attempts. Please try again in a few minutes.",
+      "server": "Something went wrong on our side. Please try again in a moment or call us.",
+      "network": "We couldn’t reach the server. Check your connection and try again.",
+      "unknown": "Something went wrong. Please try again."
+    },
+    "success": {
+      "title": "You’re booked, {name}!",
+      "text": "We’ve received your request and will confirm by phone or LINE shortly. Here are the details:",
+      "service": "Service",
+      "services": "Services",
+      "total": "Total",
+      "barber": "Barber",
+      "dateTime": "Date & time",
+      "dateTimeValue": "{date} at {time}",
+      "name": "Name",
+      "phone": "Phone",
+      "comment": "Comment",
+      "addToCalendar": "Add to calendar",
+      "addToCalendarHint": "(Google Calendar, opens in a new tab)",
+      "changeHint": "Need to change something? Call us at",
+      "another": "Make another booking"
+    },
+    "calendar": {
+      "title": "Sharp Barber — {services}",
+      "barber": "Barber: {barber}",
+      "phone": "Salon phone: {phone}"
+    },
+    "messenger": {
+      "divider": "or book in one message",
+      "whatsappHint": "(opens in a new tab with your message filled in)",
+      "lineHint": "(opens in a new tab)",
+      "yourMessage": "Your message",
+      "copy": "Copy",
+      "copied": "Copied",
+      "copiedAnnouncement": "Message copied",
+      "note": "WhatsApp fills this in for you. LINE can’t pre-fill messages, so copy the text and send it in the chat.",
+      "generic": "Hi! I'd like to book an appointment.",
+      "genericWithName": "Hi! I'd like to book an appointment. My name is {name}.",
+      "withDetails": "Hi! I'd like to book: {details}. My name is ___",
+      "withDetailsAndName": "Hi! I'd like to book: {details}. My name is {name}.",
+      "withBarber": "with {barber}",
+      "detailsSeparator": ", "
+    }
+  },
+  "validation": {
+    "name": {
+      "required": "Please enter your name.",
+      "length": "Name must be {min}–{max} characters.",
+      "pattern": "Name can only contain letters, spaces, hyphens and apostrophes."
+    },
+    "phone": {
+      "required": "Please enter your phone number.",
+      "invalid": "Enter a valid phone number, {hint}."
+    },
+    "services": {
+      "required": "Please choose at least one service.",
+      "invalid": "Please choose services from the list."
+    },
+    "barber": {
+      "required": "Please choose a barber."
+    },
+    "date": {
+      "required": "Please choose a date.",
+      "invalid": "Please enter a valid date.",
+      "past": "This date is in the past. Please choose today or later.",
+      "tooFar": "Bookings are open up to {days} days ahead."
+    },
+    "time": {
+      "required": "Please choose a time.",
+      "invalid": "Please enter a valid time.",
+      "closed": "On this day we're open {open}–{close}.",
+      "closedOneService": "On this day we're open {open}–{close}. This service needs to finish by closing time.",
+      "closedServices": "On this day we're open {open}–{close}. Your services need to finish by closing time.",
+      "notInList": "Please choose one of the available times.",
+      "past": "This time has already passed. Please choose a later time.",
+      "taken": "This time was just booked, please pick another"
+    },
+    "comment": {
+      "tooLong": "Comment must be {max} characters or fewer."
+    }
+  },
+  "reviews": {
+    "eyebrow": "Reviews",
+    "title": "Word on the street",
+    "rating": "Rated 5 out of 5",
+    "items": [
+      {
+        "name": "James T.",
+        "text": "Best skin fade I’ve had in Bangkok, and I’ve tried a lot. Ton took his time, and the hot towel at the end was a nice touch."
+      },
+      {
+        "name": "Nattapong S.",
+        "text": "Booked online in a minute and got a confirmation on LINE right away. The Royal Treatment is worth every baht."
+      },
+      {
+        "name": "Lukas M.",
+        "text": "Brought my son for his first proper haircut. Kay was patient and made it fun. We’re both regulars now."
+      }
+    ]
+  },
+  "location": {
+    "eyebrow": "How to find us",
+    "title": "Visit the shop",
+    "intro": "Five minutes' walk from BTS Nana, Exit 3. Look for the ochre pole.",
+    "address": "Address",
+    "getDirections": "Get directions",
+    "hours": "Opening hours",
+    "mapTitle": "Map showing {name} on Sukhumvit Soi 11, Bangkok"
+  },
+  "footer": {
+    "social": "Social media",
+    "rights": "© {year} {name}. All rights reserved.",
+    "demo": "Demo project — not a real business"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "text": "The page you’re looking for doesn’t exist or has moved.",
+    "home": "Back to the homepage"
+  }
+}

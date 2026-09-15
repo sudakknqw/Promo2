@@ -3,13 +3,15 @@
 // Bookings are stored as Bangkok wall-clock time (date + HH:MM, no zone).
 // Calendars need an exact instant, so every time is converted to UTC here,
 // in one place. Thailand has no daylight saving: Bangkok is always UTC+07:00.
+// Texts (title, description, location) are passed in already translated.
 
 import { SHOP } from './data';
 import { BANGKOK_OFFSET_MS } from './validation';
 
-export type BookingForCalendar = {
-  serviceName: string;
-  barberName: string;
+export type BookingEventInput = {
+  title: string;
+  description: string;
+  location: string;
   date: string; // YYYY-MM-DD, Bangkok
   time: string; // HH:MM, Bangkok
   durationMin: number;
@@ -22,8 +24,6 @@ export type CalendarEvent = {
   location: string;
   description: string;
 };
-
-export const SHOP_LOCATION = `${SHOP.name}, ${SHOP.address.line1}, ${SHOP.address.line2}, ${SHOP.address.city}`;
 
 /** Bangkok wall-clock date and time to the exact instant. 2026-09-20 12:30 becomes 05:30Z. */
 export function bangkokToUtc(date: string, time: string): Date {
@@ -38,16 +38,10 @@ export function toUtcStamp(date: Date): string {
   return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 }
 
-export function buildBookingEvent(booking: BookingForCalendar): CalendarEvent {
-  const start = bangkokToUtc(booking.date, booking.time);
-  const end = new Date(start.getTime() + booking.durationMin * 60_000);
-  return {
-    title: `Sharp Barber — ${booking.serviceName}`,
-    start,
-    end,
-    location: SHOP_LOCATION,
-    description: [`Barber: ${booking.barberName}`, `Salon phone: ${SHOP.phoneDisplay}`].join('\n'),
-  };
+export function buildBookingEvent(input: BookingEventInput): CalendarEvent {
+  const start = bangkokToUtc(input.date, input.time);
+  const end = new Date(start.getTime() + input.durationMin * 60_000);
+  return { title: input.title, start, end, location: input.location, description: input.description };
 }
 
 export function googleCalendarUrl(event: CalendarEvent): string {
@@ -56,7 +50,7 @@ export function googleCalendarUrl(event: CalendarEvent): string {
     text: event.title,
     // UTC instants ("Z"), so the event lands at the right moment in any zone.
     dates: `${toUtcStamp(event.start)}/${toUtcStamp(event.end)}`,
-    // Display zone for the event editor: shows 12:30 Bangkok time, not the viewer's local time.
+    // Display zone for the event editor: shows Bangkok time, not the viewer's local time.
     ctz: SHOP.timeZone,
     location: event.location,
     details: event.description,
