@@ -33,8 +33,10 @@ export default function Location({ locale, dict }: { locale: Locale; dict: Dicti
                 <br />
                 {address.city}
               </address>
-              <div className="mt-5 flex flex-wrap gap-3">
-                <a href={directionsHref} target="_blank" rel="noopener noreferrer" className="btn-primary">
+              {/* Fixed grid instead of wrapping: directions on its own row, Call and LINE as an equal pair below,
+                  so no button ends up alone on a line at any width or in any language. */}
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                <a href={directionsHref} target="_blank" rel="noopener noreferrer" className="btn-primary col-span-2">
                   {t.getDirections}
                 </a>
                 <a
