@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { findNextAvailableDate, getSlotStates, type BusyInterval } from '@/lib/availability';
 import { buildBookingEvent, googleCalendarUrl } from '@/lib/calendar';
 import { ANY_BARBER_ID, BARBERS, SERVICES, SHOP, SLOT_STEP_MIN, formatPrice } from '@/lib/data';
-import { LOCALE_SWITCH_EVENT, saveBookingDraft, takeBookingDraft } from '@/lib/i18n/locale-switch';
+import { LOCALE_SWITCH_EVENT, clearBookingDraft, peekBookingDraft, saveBookingDraft } from '@/lib/i18n/locale-switch';
 import {
   barberText,
   formatDate,
@@ -68,8 +68,18 @@ type NextSlotResponse = { ok: true; today: string; slot: Slot | null } | { ok: f
 /** Nearest free slot from the server. `today` is the Bangkok date on the server clock. */
 type Suggestion = { loading: boolean; failed: boolean; today: string | null; slot: Slot | null };
 
-/** What the language switcher carries over to the other locale. */
-type LocaleSwitchDraft = { values: BookingFields; manualSchedule: boolean };
+/**
+ * What the language switcher carries over to the other locale. Loaded slots and the
+ * nearest-slot suggestion come along too, so the new page doesn't show loading states.
+ */
+type LocaleSwitchDraft = {
+  values: BookingFields;
+  errors: FieldErrors;
+  submitted: boolean;
+  manualSchedule: boolean;
+  suggestion: { today: string | null; slot: Slot | null } | null;
+  availability: { date: string; until: string; busy: BusyInterval[] } | null;
+};
 
 const EMPTY: BookingFields = {
   name: '',
@@ -100,29 +110,45 @@ export default function BookingForm() {
   const t = dict.booking;
   const f = t.form;
 
-  const [values, setValues] = useState<BookingFields>(EMPTY);
-  const [errors, setErrors] = useState<FieldErrors>({});
-  const [submitted, setSubmitted] = useState(false);
+  // Right after a language switch, start from the previous page's state on the very first
+  // render, so the form doesn't flash empty or loading. A draft only exists after a
+  // client-side switch, never on a server-rendered first load, so hydration is unaffected.
+  const [restored] = useState(() => (typeof window === 'undefined' ? null : peekBookingDraft<LocaleSwitchDraft>()));
+
+  const [values, setValues] = useState<BookingFields>(() => (restored ? { ...EMPTY, ...restored.values } : EMPTY));
+  const [errors, setErrors] = useState<FieldErrors>(() => restored?.errors ?? {});
+  const [submitted, setSubmitted] = useState(() => restored?.submitted ?? false);
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
   const [formError, setFormError] = useState('');
   const [confirmed, setConfirmed] = useState<ConfirmedBooking | null>(null);
   const [honeypot, setHoneypot] = useState('');
   // Date bounds depend on "now", so compute them after mount to avoid hydration mismatch.
   const [dateBounds, setDateBounds] = useState<{ min: string; max: string } | null>(null);
-  const [availability, setAvailability] = useState<Availability>({ status: 'idle' });
-  const [suggestion, setSuggestion] = useState<Suggestion>({ loading: true, failed: false, today: null, slot: null });
+  const [availability, setAvailability] = useState<Availability>(() =>
+    restored?.availability ? { status: 'ready', ...restored.availability } : { status: 'idle' },
+  );
+  const [suggestion, setSuggestion] = useState<Suggestion>(() =>
+    restored?.suggestion
+      ? { loading: false, failed: false, ...restored.suggestion }
+      : { loading: true, failed: false, today: null, slot: null },
+  );
   // Once the user picks a date or time themselves, auto-fill never overwrites it.
-  const [manualSchedule, setManualSchedule] = useState(false);
+  const [manualSchedule, setManualSchedule] = useState(() => restored?.manualSchedule ?? false);
   const [suggestionNonce, setSuggestionNonce] = useState(0);
 
   const formRef = useRef<HTMLFormElement>(null);
   const successRef = useRef<HTMLDivElement>(null);
   const availabilityRequest = useRef<AbortController | null>(null);
   const suggestionRequest = useRef<AbortController | null>(null);
-  const manualScheduleRef = useRef(false);
+  const manualScheduleRef = useRef(restored?.manualSchedule ?? false);
   const suggestionRetries = useRef(0);
   const focusTimeWhenLoaded = useRef(false);
-  const valuesRef = useRef(values);
+  // Restored data is seconds old: skip the first refetch while the inputs are unchanged.
+  const restoredSuggestionKey = useRef(
+    restored?.suggestion ? `${restored.values.services.join(',')}|${restored.values.barber}|0` : null,
+  );
+  const restoredAvailabilityDate = useRef(restored?.availability?.date ?? null);
+  const latest = useRef({ values, errors, submitted, suggestion, availability });
 
   useEffect(() => setDateBounds(getBookingWindow()), []);
 
@@ -173,6 +199,9 @@ export default function BookingForm() {
   // ask the server for the nearest slot, unless the user has chosen a time themselves.
   useEffect(() => {
     if (manualSchedule) return;
+    const key = `${servicesKey}|${values.barber}|${suggestionNonce}`;
+    if (restoredSuggestionKey.current === key) return;
+    restoredSuggestionKey.current = null;
     const timer = setTimeout(() => void loadSuggestion(servicesKey, values.barber), SUGGESTION_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [servicesKey, values.barber, manualSchedule, suggestionNonce, loadSuggestion]);
@@ -185,22 +214,29 @@ export default function BookingForm() {
   // Language switch: keep what the visitor has entered
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    valuesRef.current = values;
-  }, [values]);
+    latest.current = { values, errors, submitted, suggestion, availability };
+  });
 
   useEffect(() => {
-    const save = () =>
-      saveBookingDraft<LocaleSwitchDraft>({ values: valuesRef.current, manualSchedule: manualScheduleRef.current });
+    const save = () => {
+      const { values: v, errors: e, submitted: s, suggestion: sg, availability: a } = latest.current;
+      saveBookingDraft<LocaleSwitchDraft>({
+        values: v,
+        errors: e,
+        submitted: s,
+        manualSchedule: manualScheduleRef.current,
+        suggestion: sg.loading || sg.failed ? null : { today: sg.today, slot: sg.slot },
+        availability: a.status === 'ready' ? { date: a.date, until: a.until, busy: a.busy } : null,
+      });
+    };
     window.addEventListener(LOCALE_SWITCH_EVENT, save);
     return () => window.removeEventListener(LOCALE_SWITCH_EVENT, save);
   }, []);
 
+  // The restored state is already in place; drop the stored copy so a later reload starts fresh.
   useEffect(() => {
-    const draft = takeBookingDraft<LocaleSwitchDraft>();
-    if (!draft) return;
-    setValues({ ...EMPTY, ...draft.values });
-    if (draft.manualSchedule) markManualSchedule();
-  }, [markManualSchedule]);
+    if (restored) clearBookingDraft();
+  }, [restored]);
 
   // ---------------------------------------------------------------------------
   // Availability
@@ -228,6 +264,10 @@ export default function BookingForm() {
   // a date by hand produces several intermediate values.
   useEffect(() => {
     const date = values.date;
+    // Slots for this date came along with the language switch: keep them, no loading spinner.
+    if (restoredAvailabilityDate.current === date) return;
+    restoredAvailabilityDate.current = null;
+
     const bounds = getBookingWindow();
     availabilityRequest.current?.abort();
 
@@ -905,7 +945,8 @@ function useAnimatedNumber(value: number, durationMs = 300): number {
     const startedAt = performance.now();
     let frame = 0;
     const tick = (now: number) => {
-      const progress = Math.min(1, (now - startedAt) / durationMs);
+      // The frame timestamp can be slightly earlier than startedAt; clamp so the number never dips below the start.
+      const progress = Math.max(0, Math.min(1, (now - startedAt) / durationMs));
       const eased = 1 - (1 - progress) ** 3;
       current.current = Math.round(from + (value - from) * eased);
       setDisplay(current.current);
