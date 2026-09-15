@@ -16,7 +16,10 @@ function buildMessage(b: BookingData): string {
   const lines = [
     '✂️ <b>New booking: Sharp Barber Bangkok</b>',
     '',
-    `<b>Service:</b> ${escapeHtml(b.serviceName)} (${formatPrice(b.priceThb)}, ${formatDuration(b.durationMin)})`,
+    '<b>Services:</b>',
+    ...b.services.map((s) => `• ${escapeHtml(s.name)}: ${formatPrice(s.priceThb)}, ${formatDuration(s.durationMin)}`),
+    `<b>Total:</b> ${formatPrice(b.totalPriceThb)} · ${formatDuration(b.totalDurationMin)}`,
+    '',
     `<b>Barber:</b> ${escapeHtml(b.barberName)}`,
     `<b>Date &amp; time:</b> ${escapeHtml(formatDateLong(b.date))} at ${escapeHtml(b.time)}`,
     `<b>Name:</b> ${escapeHtml(b.name)}`,

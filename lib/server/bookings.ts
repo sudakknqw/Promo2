@@ -20,6 +20,7 @@ type BookingDbRow = {
   booking_time: string;
   service: string;
   barber: string;
+  total_duration: number | null;
 };
 
 export class DatabaseError extends Error {
@@ -28,17 +29,19 @@ export class DatabaseError extends Error {
   }
 }
 
-// The table stores display names, so map them back to durations and barber ids.
+// The table stores the barber's display name, so map it back to an id.
+// Duration is the total of all booked services (total_duration); rows without it
+// (created before migration 002) fall back to the single service name.
 function toActiveBooking(row: BookingDbRow): ActiveBooking {
-  const service = SERVICES.find((s) => s.name === row.service);
   const barber = BARBERS.find((b) => b.name === row.barber);
+  const legacyService = SERVICES.find((s) => s.name === row.service);
   return {
     id: row.id,
     createdAt: row.created_at,
     date: row.booking_date,
     time: row.booking_time.slice(0, 5),
     barber: barber?.id ?? ANY_BARBER_ID,
-    durationMin: service?.durationMin ?? FALLBACK_DURATION_MIN,
+    durationMin: row.total_duration ?? legacyService?.durationMin ?? FALLBACK_DURATION_MIN,
   };
 }
 
@@ -46,7 +49,7 @@ function toActiveBooking(row: BookingDbRow): ActiveBooking {
 export async function getActiveBookings(from: string, to: string): Promise<ActiveBooking[]> {
   const { data, error } = await getSupabaseAdmin()
     .from('bookings')
-    .select('id, created_at, booking_date, booking_time, service, barber')
+    .select('id, created_at, booking_date, booking_time, service, barber, total_duration')
     .gte('booking_date', from)
     .lte('booking_date', to)
     .not('status', 'in', `(${INACTIVE_STATUSES.join(',')})`)
@@ -55,6 +58,9 @@ export async function getActiveBookings(from: string, to: string): Promise<Activ
 
   if (error) {
     console.error(`[bookings] select failed (code: ${error.code ?? 'n/a'})`, error.message);
+    if (error.code === '42703') {
+      console.error('[bookings] Column missing: run part A of supabase/migrations/002_multiple_services.sql');
+    }
     throw new DatabaseError(error.code);
   }
   return (data as BookingDbRow[]).map(toActiveBooking);

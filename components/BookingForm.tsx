@@ -14,6 +14,7 @@ import {
   formatDuration,
   formatPrice,
 } from '@/lib/data';
+import { formatQuoteSummary, joinServiceNames, quoteServices, type Quote, type ServiceLine } from '@/lib/pricing';
 import {
   FIELD_ORDER,
   HONEYPOT_FIELD,
@@ -35,9 +36,9 @@ import { CalendarIcon } from './icons';
 type ConfirmedBooking = {
   name: string;
   phone: string;
-  serviceName: string;
-  priceThb: number;
-  durationMin: number;
+  services: ServiceLine[];
+  totalPriceThb: number;
+  totalDurationMin: number;
   barberName: string;
   date: string;
   time: string;
@@ -59,7 +60,7 @@ type Availability =
 const EMPTY: BookingFields = {
   name: '',
   phone: '',
-  service: '',
+  services: [],
   barber: ANY_BARBER_ID,
   date: '',
   time: '',
@@ -90,6 +91,10 @@ export default function BookingForm() {
   const focusTimeWhenLoaded = useRef(false);
 
   useEffect(() => setDateBounds(getBookingWindow()), []);
+
+  // Display-only totals. The server recalculates them from the service ids.
+  const quote = useMemo(() => quoteServices(values.services), [values.services]);
+  const durationMin = quote.totalDurationMin || SLOT_STEP_MIN;
 
   // ---------------------------------------------------------------------------
   // Availability
@@ -132,12 +137,11 @@ export default function BookingForm() {
 
   useEffect(() => () => availabilityRequest.current?.abort(), []);
 
-  const selectedService = SERVICES.find((s) => s.id === values.service);
-  const durationMin = selectedService?.durationMin ?? SLOT_STEP_MIN;
   const slotsLoading = availability.status === 'loading';
   const availabilityFailed = availability.status === 'error';
   const loaded = availability.status === 'ready' && availability.date === values.date ? availability : null;
 
+  // Slots use the total duration of all selected services.
   const slotStates = useMemo(
     () => (values.date && !slotsLoading ? getSlotStates(values.date, durationMin, values.barber, loaded?.busy ?? []) : []),
     [values.date, durationMin, values.barber, loaded, slotsLoading],
@@ -154,7 +158,7 @@ export default function BookingForm() {
     [noFreeTimes, loaded, durationMin, values.barber],
   );
 
-  // Drop a chosen time that is no longer free (other date, service, barber, or fresh data).
+  // Drop a chosen time that is no longer free (other date, services, barber, or fresh data).
   useEffect(() => {
     if (slotsLoading || !values.time) return;
     if (!freeTimes.includes(values.time)) {
@@ -177,7 +181,7 @@ export default function BookingForm() {
   // ---------------------------------------------------------------------------
   // Form
   // ---------------------------------------------------------------------------
-  function update(field: FieldName, value: string) {
+  function update<K extends FieldName>(field: K, value: BookingFields[K]) {
     const next = { ...values, [field]: value };
     setValues(next);
     setFormError('');
@@ -186,6 +190,11 @@ export default function BookingForm() {
       const result = validateBooking(next);
       setErrors(result.ok ? {} : result.errors);
     }
+  }
+
+  function toggleService(id: string) {
+    const selected = values.services.includes(id);
+    update('services', selected ? values.services.filter((s) => s !== id) : [...values.services, id]);
   }
 
   function focusFirstError(fieldErrors: FieldErrors) {
@@ -214,6 +223,7 @@ export default function BookingForm() {
       const res = await fetch('/api/booking', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        // Only service ids are sent. Prices and totals are calculated on the server.
         body: JSON.stringify({ ...values, [HONEYPOT_FIELD]: honeypot }),
       });
       const data = (await res.json().catch(() => null)) as ApiResponse | null;
@@ -224,9 +234,9 @@ export default function BookingForm() {
           data.booking ?? {
             name: d.name,
             phone: d.phone,
-            serviceName: d.serviceName,
-            priceThb: d.priceThb,
-            durationMin: d.durationMin,
+            services: d.services,
+            totalPriceThb: d.totalPriceThb,
+            totalDurationMin: d.totalDurationMin,
             barberName: d.barberName,
             date: d.date,
             time: d.time,
@@ -271,6 +281,14 @@ export default function BookingForm() {
   }
 
   if (status === 'success' && confirmed) {
+    const calendarEvent = buildBookingEvent({
+      serviceName: joinServiceNames(confirmed.services),
+      barberName: confirmed.barberName,
+      date: confirmed.date,
+      time: confirmed.time,
+      durationMin: confirmed.totalDurationMin,
+    });
+
     return (
       <div
         ref={successRef}
@@ -292,8 +310,19 @@ export default function BookingForm() {
         </p>
 
         <dl className="mt-6 divide-y divide-graphite-600 rounded-xl border border-graphite-600 text-sm">
-          <SummaryRow label="Service">
-            {confirmed.serviceName} · {formatPrice(confirmed.priceThb)} · {formatDuration(confirmed.durationMin)}
+          <SummaryRow label={confirmed.services.length === 1 ? 'Service' : 'Services'}>
+            <ul className="space-y-1">
+              {confirmed.services.map((s) => (
+                <li key={s.id} className="flex justify-between gap-4">
+                  <span>{s.name}</span>
+                  <span className="shrink-0 tabular-nums text-beige-300">{formatPrice(s.priceThb)}</span>
+                </li>
+              ))}
+            </ul>
+          </SummaryRow>
+          <SummaryRow label="Total">
+            <span className="font-semibold text-ochre-300">{formatPrice(confirmed.totalPriceThb)}</span> ·{' '}
+            {formatDuration(confirmed.totalDurationMin)}
           </SummaryRow>
           <SummaryRow label="Barber">{confirmed.barberName}</SummaryRow>
           <SummaryRow label="Date & time">
@@ -306,7 +335,7 @@ export default function BookingForm() {
 
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
           <a
-            href={googleCalendarUrl(buildBookingEvent(confirmed))}
+            href={googleCalendarUrl(calendarEvent)}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-graphite-500 px-5 text-sm font-semibold text-beige-100 transition hover:border-ochre-400 hover:text-ochre-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ochre-400 sm:w-auto"
@@ -409,25 +438,65 @@ export default function BookingForm() {
           )}
         </Field>
 
-        <Field
-          label="Service"
-          name="service"
-          error={errors.service}
-          hint={selectedService ? `Takes about ${formatDuration(selectedService.durationMin)}` : undefined}
+        <fieldset
+          className="sm:col-span-2"
+          aria-describedby={errors.services ? 'booking-services-error' : 'booking-services-summary'}
         >
-          {(p) => (
-            <select {...p} value={values.service} onChange={(e) => update('service', e.target.value)}>
-              <option value="" disabled>
-                Choose a service
-              </option>
-              {SERVICES.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} · {formatPrice(s.priceThb)}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
+          <legend className="mb-2 text-sm font-semibold text-beige-100">
+            Services <span className="font-normal text-beige-400">(choose one or more)</span>
+          </legend>
+
+          {/* The summary is the last child of this wrapper, so on mobile it sticks to the
+              bottom of the screen while the list is being scrolled. */}
+          <div>
+            <ul className="grid gap-2 sm:grid-cols-2">
+              {SERVICES.map((service) => {
+                const checked = values.services.includes(service.id);
+                return (
+                  <li key={service.id}>
+                    <label
+                      className={[
+                        'flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition',
+                        'focus-within:ring-2 focus-within:ring-ochre-400/40',
+                        checked
+                          ? 'border-ochre-400 bg-ochre-400/10'
+                          : errors.services
+                            ? 'border-danger bg-graphite-900'
+                            : 'border-graphite-600 bg-graphite-900 hover:border-graphite-500',
+                      ].join(' ')}
+                    >
+                      <input
+                        type="checkbox"
+                        name="services"
+                        value={service.id}
+                        checked={checked}
+                        onChange={() => toggleService(service.id)}
+                        aria-invalid={Boolean(errors.services)}
+                        className="h-5 w-5 shrink-0 cursor-pointer accent-ochre-400"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-semibold leading-snug text-beige-50">{service.name}</span>
+                        <span className="block text-xs text-beige-400">{formatDuration(service.durationMin)}</span>
+                      </span>
+                      <span className="shrink-0 font-semibold tabular-nums text-beige-100">
+                        {formatPrice(service.priceThb)}
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+
+            {errors.services && (
+              <p id="booking-services-error" className="mt-2 flex items-start gap-1.5 text-sm text-danger">
+                <span aria-hidden>!</span>
+                {errors.services}
+              </p>
+            )}
+
+            <QuoteSummary quote={quote} />
+          </div>
+        </fieldset>
 
         <Field label="Barber" name="barber" error={errors.barber}>
           {(p) => (
@@ -551,6 +620,72 @@ export default function BookingForm() {
   );
 }
 
+/** Selected services, total duration and total price. Sticky at the bottom of the screen on mobile. */
+function QuoteSummary({ quote }: { quote: Quote }) {
+  const count = quote.services.length;
+  const price = useAnimatedNumber(quote.totalPriceThb);
+  const minutes = useAnimatedNumber(quote.totalDurationMin);
+
+  return (
+    <div
+      id="booking-services-summary"
+      className="sticky bottom-3 z-10 mt-3 rounded-xl border border-ochre-500/40 bg-graphite-950/95 p-4 shadow-lg shadow-black/50 backdrop-blur sm:static sm:shadow-none"
+    >
+      {/* Screen readers get the final numbers once, not every animation frame. */}
+      <p className="sr-only" aria-live="polite">
+        {count > 0 ? formatQuoteSummary(quote) : 'No services selected'}
+      </p>
+
+      {count === 0 ? (
+        <p aria-hidden className="text-sm text-beige-400">
+          Choose at least one service to see the total.
+        </p>
+      ) : (
+        <div aria-hidden>
+          <p className="line-clamp-2 text-sm text-beige-300">{joinServiceNames(quote.services)}</p>
+          <p className="mt-1 flex flex-wrap items-baseline justify-between gap-x-3 text-beige-100">
+            <span className="text-sm">
+              {count} {count === 1 ? 'service' : 'services'} · <span className="tabular-nums">{minutes}</span> min ·
+            </span>
+            <span className="font-display text-2xl font-semibold tabular-nums text-ochre-300">{formatPrice(price)}</span>
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Counts smoothly to a new value. Instant when the user prefers reduced motion. */
+function useAnimatedNumber(value: number, durationMs = 300): number {
+  const [display, setDisplay] = useState(value);
+  const current = useRef(value);
+
+  useEffect(() => {
+    const from = current.current;
+    if (from === value) return;
+
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      current.current = value;
+      setDisplay(value);
+      return;
+    }
+
+    const startedAt = performance.now();
+    let frame = 0;
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - startedAt) / durationMs);
+      const eased = 1 - (1 - progress) ** 3;
+      current.current = Math.round(from + (value - from) * eased);
+      setDisplay(current.current);
+      if (progress < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [value, durationMs]);
+
+  return display;
+}
+
 type ControlProps = {
   id: string;
   name: string;
@@ -627,7 +762,7 @@ function SummaryRow({ label, children }: { label: string; children: ReactNode })
   return (
     <div className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:gap-4">
       <dt className="shrink-0 text-beige-400 sm:w-28">{label}</dt>
-      <dd className="break-words text-beige-50">{children}</dd>
+      <dd className="min-w-0 flex-1 break-words text-beige-50">{children}</dd>
     </div>
   );
 }

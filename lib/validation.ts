@@ -11,6 +11,7 @@ import {
   SLOT_STEP_MIN,
   formatMinutes,
 } from './data';
+import { joinServiceNames, quoteServices, type ServiceLine } from './pricing';
 
 export const LIMITS = {
   nameMin: 2,
@@ -23,18 +24,28 @@ export const LIMITS = {
 /** Hidden anti-spam field. Real users leave it empty. */
 export const HONEYPOT_FIELD = 'website';
 
-export const FIELD_ORDER = ['name', 'phone', 'service', 'barber', 'date', 'time', 'comment'] as const;
+export const FIELD_ORDER = ['name', 'phone', 'services', 'barber', 'date', 'time', 'comment'] as const;
 export type FieldName = (typeof FIELD_ORDER)[number];
-export type BookingFields = Record<FieldName, string>;
+export type BookingFields = {
+  name: string;
+  phone: string;
+  services: string[]; // service ids only: prices are never taken from the client
+  barber: string;
+  date: string;
+  time: string;
+  comment: string;
+};
 export type FieldErrors = Partial<Record<FieldName, string>>;
 
 export type BookingData = {
   name: string;
   phone: string;
-  serviceId: string;
-  serviceName: string;
-  priceThb: number;
-  durationMin: number;
+  /** Selected services, priced from the server-side price list. */
+  services: ServiceLine[];
+  /** "Signature Haircut + Beard Trim & Shape" */
+  serviceSummary: string;
+  totalPriceThb: number;
+  totalDurationMin: number;
   barberId: string;
   barberName: string;
   date: string; // YYYY-MM-DD
@@ -193,9 +204,25 @@ export function validateBooking(raw: unknown, now: Date = new Date()): Validatio
     errors.phone = `Enter a valid phone number, ${PHONE_HINT}.`;
   }
 
-  // Service
-  const service = SERVICES.find((s) => s.id === asString(input.service));
-  if (!service) errors.service = 'Please choose a service.';
+  // Services: ids only. Prices and durations always come from the price list,
+  // so anything else in the request (prices, totals) is ignored.
+  // A single "service" string is still accepted from pages cached before multi-service booking.
+  const rawServices: unknown[] = Array.isArray(input.services)
+    ? input.services
+    : typeof input.service === 'string'
+      ? [input.service]
+      : [];
+  const serviceIds = rawServices.filter((id): id is string => typeof id === 'string');
+  const quote = quoteServices(serviceIds);
+  if (rawServices.length === 0) {
+    errors.services = 'Please choose at least one service.';
+  } else if (
+    rawServices.length > SERVICES.length ||
+    serviceIds.length !== rawServices.length ||
+    quote.services.length !== new Set(serviceIds).size
+  ) {
+    errors.services = 'Please choose services from the list.';
+  }
 
   // Barber
   const barberId = asString(input.barber);
@@ -225,13 +252,15 @@ export function validateBooking(raw: unknown, now: Date = new Date()): Validatio
     errors.time = 'Please enter a valid time.';
   } else if (parsedDate && !errors.date) {
     const { open, close } = OPENING_HOURS[parsedDate.getUTCDay()];
-    const duration = service?.durationMin ?? SLOT_STEP_MIN;
+    // The whole visit (all services together) must fit before closing.
+    const duration = errors.services ? SLOT_STEP_MIN : quote.totalDurationMin;
     const bkk = bangkokNow(now);
 
     if (minutes < open || minutes + duration > close) {
-      errors.time = service
-        ? `On this day we're open ${formatMinutes(open)}–${formatMinutes(close)}. This service needs to finish by closing time.`
-        : `On this day we're open ${formatMinutes(open)}–${formatMinutes(close)}.`;
+      const hours = `On this day we're open ${formatMinutes(open)}–${formatMinutes(close)}.`;
+      errors.time = errors.services
+        ? hours
+        : `${hours} ${quote.services.length === 1 ? 'This service needs' : 'Your services need'} to finish by closing time.`;
     } else if (minutes % SLOT_STEP_MIN !== 0) {
       errors.time = 'Please choose one of the available times.';
     } else if (date === bkk.date && minutes < bkk.minutes + LIMITS.leadTimeMin) {
@@ -245,7 +274,7 @@ export function validateBooking(raw: unknown, now: Date = new Date()): Validatio
     errors.comment = `Comment must be ${LIMITS.commentMax} characters or fewer.`;
   }
 
-  if (Object.keys(errors).length > 0 || !service || !phone) {
+  if (Object.keys(errors).length > 0 || quote.services.length === 0 || !phone) {
     return { ok: false, errors };
   }
 
@@ -254,10 +283,10 @@ export function validateBooking(raw: unknown, now: Date = new Date()): Validatio
     data: {
       name,
       phone,
-      serviceId: service.id,
-      serviceName: service.name,
-      priceThb: service.priceThb,
-      durationMin: service.durationMin,
+      services: quote.services,
+      serviceSummary: joinServiceNames(quote.services),
+      totalPriceThb: quote.totalPriceThb,
+      totalDurationMin: quote.totalDurationMin,
       barberId: barber ? barber.id : ANY_BARBER_ID,
       barberName: barber ? barber.name : ANY_BARBER_NAME,
       date,

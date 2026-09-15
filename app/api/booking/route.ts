@@ -31,7 +31,7 @@ function slotTaken() {
 }
 
 function slotOf(b: BookingData) {
-  return { date: b.date, time: b.time, barber: b.barberId, durationMin: b.durationMin };
+  return { date: b.date, time: b.time, barber: b.barberId, durationMin: b.totalDurationMin };
 }
 
 /**
@@ -122,7 +122,12 @@ export async function POST(req: NextRequest) {
       .insert({
         name: booking.name,
         phone: booking.phone,
-        service: booking.serviceName,
+        service: booking.serviceSummary,
+        // Everything below was calculated on the server from the price list (lib/data.ts),
+        // using only the service ids sent by the form.
+        services: booking.services.map((s) => ({ id: s.id, name: s.name, price: s.priceThb, duration: s.durationMin })),
+        total_price: booking.totalPriceThb,
+        total_duration: booking.totalDurationMin,
         barber: booking.barberName,
         booking_date: booking.date,
         booking_time: booking.time,
@@ -138,6 +143,9 @@ export async function POST(req: NextRequest) {
           "[booking] Table 'public.bookings' is not visible to the API. Run supabase/schema.sql in this project, " +
             "or reload the schema cache with: notify pgrst, 'reload schema';",
         );
+      }
+      if (error?.code === 'PGRST204' || error?.code === '42703') {
+        console.error('[booking] Column missing: run part A of supabase/migrations/002_multiple_services.sql');
       }
       return reply({ ok: false, error: MESSAGES.generic }, 500);
     }
@@ -179,9 +187,9 @@ export async function POST(req: NextRequest) {
       booking: {
         name: booking.name,
         phone: booking.phone,
-        serviceName: booking.serviceName,
-        priceThb: booking.priceThb,
-        durationMin: booking.durationMin,
+        services: booking.services,
+        totalPriceThb: booking.totalPriceThb,
+        totalDurationMin: booking.totalDurationMin,
         barberName: booking.barberName,
         date: booking.date,
         time: booking.time,

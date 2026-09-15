@@ -6,10 +6,17 @@ create table if not exists public.bookings (
   created_at    timestamptz not null default now(),
   name          text        not null check (char_length(name) between 2 and 60),
   phone         text        not null check (char_length(phone) between 9 and 20),
-  service       text        not null check (char_length(service) between 1 and 80),
+  service       text        not null check (char_length(service) between 1 and 300), -- readable summary of services
   barber        text        not null check (char_length(barber) between 1 and 80),
   booking_date  date        not null,
   booking_time  time        not null,
+  services      jsonb       not null check (
+                              case when jsonb_typeof(services) = 'array'
+                                   then jsonb_array_length(services) between 1 and 20
+                                   else false end
+                            ), -- [{ "id", "name", "price", "duration" }] snapshot at booking time
+  total_price   integer     not null check (total_price between 0 and 1000000),   -- THB, calculated on the server
+  total_duration integer    not null check (total_duration between 1 and 720),    -- minutes
   comment       text                 check (comment is null or char_length(comment) <= 500),
   status        text        not null default 'new'
                             check (status in ('new', 'confirmed', 'completed', 'cancelled', 'no_show'))
