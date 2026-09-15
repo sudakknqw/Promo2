@@ -76,12 +76,33 @@ export function getSlotStates(
   barberChoice: string,
   busy: BusyInterval[],
   now: Date = new Date(),
+  leadTimeMin?: number,
 ): SlotState[] {
   const intervals = intervalsForDate(busy, date);
-  return getTimeSlots(date, durationMin, now).map((time) => ({
+  return getTimeSlots(date, durationMin, now, leadTimeMin).map((time) => ({
     time,
     booked: !isFree(barberChoice, timeToMinutes(time), durationMin, intervals),
   }));
+}
+
+/**
+ * Earliest free start time in [from, until], or null. Days that are closed,
+ * already over, or fully booked are skipped automatically.
+ */
+export function findNextAvailableSlot(
+  from: string,
+  until: string,
+  durationMin: number,
+  barberChoice: string,
+  busy: BusyInterval[],
+  now: Date = new Date(),
+  leadTimeMin?: number,
+): { date: string; time: string } | null {
+  for (let date = from; date <= until; date = addDays(date, 1)) {
+    const free = getSlotStates(date, durationMin, barberChoice, busy, now, leadTimeMin).find((s) => !s.booked);
+    if (free) return { date, time: free.time };
+  }
+  return null;
 }
 
 /** First date in [from, until] with at least one free slot, or null. */

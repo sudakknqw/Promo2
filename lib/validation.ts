@@ -111,13 +111,21 @@ export function formatDateLong(date: string): string {
   }).format(d);
 }
 
-/** Start times that fit fully inside opening hours for the given day and duration. */
-export function getTimeSlots(date: string, durationMin: number, now: Date = new Date()): string[] {
+/**
+ * Start times that fit fully inside opening hours for the given day and duration.
+ * Today, times earlier than now + leadTimeMin (Bangkok time) are skipped.
+ */
+export function getTimeSlots(
+  date: string,
+  durationMin: number,
+  now: Date = new Date(),
+  leadTimeMin: number = LIMITS.leadTimeMin,
+): string[] {
   const d = parseDate(date);
   if (!d) return [];
   const { open, close } = OPENING_HOURS[d.getUTCDay()];
   const bkk = bangkokNow(now);
-  const earliest = date === bkk.date ? bkk.minutes + LIMITS.leadTimeMin : 0;
+  const earliest = date === bkk.date ? bkk.minutes + leadTimeMin : 0;
 
   const slots: string[] = [];
   for (let t = open; t + durationMin <= close; t += SLOT_STEP_MIN) {

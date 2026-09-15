@@ -57,6 +57,13 @@ type Availability =
   | { status: 'ready'; date: string; until: string; busy: BusyInterval[] }
   | { status: 'error'; date: string };
 
+type Slot = { date: string; time: string };
+
+type NextSlotResponse = { ok: true; today: string; slot: Slot | null } | { ok: false };
+
+/** Nearest free slot from the server. `today` is the Bangkok date on the server clock. */
+type Suggestion = { loading: boolean; failed: boolean; today: string | null; slot: Slot | null };
+
 const EMPTY: BookingFields = {
   name: '',
   phone: '',
@@ -72,6 +79,26 @@ const SLOT_TAKEN_ERROR = 'This time was just booked, please pick another';
 // Load a couple of weeks at once so a fully booked day can suggest the next free date instantly.
 const LOOKAHEAD_DAYS = 14;
 const AVAILABILITY_DEBOUNCE_MS = 250;
+const SUGGESTION_DEBOUNCE_MS = 300;
+// If a suggested time turns out to be taken on the client, ask the server again at most this often.
+const MAX_SUGGESTION_RETRIES = 2;
+
+function withoutScheduleErrors(errors: FieldErrors): FieldErrors {
+  const next = { ...errors };
+  delete next.date;
+  delete next.time;
+  return next;
+}
+
+/** "today 15:30", "tomorrow 10:00", "Thu 17 Sept 10:00" */
+function formatSuggestion(slot: Slot, today: string): string {
+  if (slot.date === today) return `today ${slot.time}`;
+  if (slot.date === addDays(today, 1)) return `tomorrow ${slot.time}`;
+  const day = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(
+    new Date(`${slot.date}T00:00:00Z`),
+  );
+  return `${day} ${slot.time}`;
+}
 
 export default function BookingForm() {
   const [values, setValues] = useState<BookingFields>(EMPTY);
@@ -84,10 +111,17 @@ export default function BookingForm() {
   // Date bounds depend on "now", so compute them after mount to avoid hydration mismatch.
   const [dateBounds, setDateBounds] = useState<{ min: string; max: string } | null>(null);
   const [availability, setAvailability] = useState<Availability>({ status: 'idle' });
+  const [suggestion, setSuggestion] = useState<Suggestion>({ loading: true, failed: false, today: null, slot: null });
+  // Once the user picks a date or time themselves, auto-fill never overwrites it.
+  const [manualSchedule, setManualSchedule] = useState(false);
+  const [suggestionNonce, setSuggestionNonce] = useState(0);
 
   const formRef = useRef<HTMLFormElement>(null);
   const successRef = useRef<HTMLDivElement>(null);
   const availabilityRequest = useRef<AbortController | null>(null);
+  const suggestionRequest = useRef<AbortController | null>(null);
+  const manualScheduleRef = useRef(false);
+  const suggestionRetries = useRef(0);
   const focusTimeWhenLoaded = useRef(false);
 
   useEffect(() => setDateBounds(getBookingWindow()), []);
@@ -95,6 +129,57 @@ export default function BookingForm() {
   // Display-only totals. The server recalculates them from the service ids.
   const quote = useMemo(() => quoteServices(values.services), [values.services]);
   const durationMin = quote.totalDurationMin || SLOT_STEP_MIN;
+  const servicesKey = values.services.join(',');
+
+  // ---------------------------------------------------------------------------
+  // Nearest available slot (auto-fill)
+  // ---------------------------------------------------------------------------
+  const markManualSchedule = useCallback(() => {
+    if (manualScheduleRef.current) return;
+    manualScheduleRef.current = true;
+    setManualSchedule(true);
+    suggestionRequest.current?.abort();
+  }, []);
+
+  const loadSuggestion = useCallback(async (serviceIds: string, barber: string) => {
+    suggestionRequest.current?.abort();
+    const controller = new AbortController();
+    suggestionRequest.current = controller;
+    setSuggestion((s) => ({ ...s, loading: true, failed: false }));
+
+    try {
+      const params = new URLSearchParams({ barber });
+      if (serviceIds) params.set('services', serviceIds);
+      const res = await fetch(`/api/availability/next?${params.toString()}`, {
+        signal: controller.signal,
+        cache: 'no-store',
+      });
+      const data = (await res.json()) as NextSlotResponse;
+      if (!res.ok || !data.ok) throw new Error('Next slot request failed');
+      if (manualScheduleRef.current) return;
+
+      setSuggestion({ loading: false, failed: false, today: data.today, slot: data.slot });
+      if (data.slot) {
+        const { date, time } = data.slot;
+        setValues((v) => ({ ...v, date, time }));
+        setErrors(withoutScheduleErrors);
+      }
+    } catch {
+      if (!controller.signal.aborted) setSuggestion((s) => ({ ...s, loading: false, failed: true }));
+    }
+  }, []);
+
+  // On open, and whenever services or barber change (different duration or schedule),
+  // ask the server for the nearest slot, unless the user has chosen a time themselves.
+  useEffect(() => {
+    if (manualSchedule) return;
+    const timer = setTimeout(() => void loadSuggestion(servicesKey, values.barber), SUGGESTION_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [servicesKey, values.barber, manualSchedule, suggestionNonce, loadSuggestion]);
+
+  useEffect(() => {
+    suggestionRetries.current = 0;
+  }, [servicesKey, values.barber]);
 
   // ---------------------------------------------------------------------------
   // Availability
@@ -135,7 +220,13 @@ export default function BookingForm() {
     return () => clearTimeout(timer);
   }, [values.date, loadAvailability]);
 
-  useEffect(() => () => availabilityRequest.current?.abort(), []);
+  useEffect(
+    () => () => {
+      availabilityRequest.current?.abort();
+      suggestionRequest.current?.abort();
+    },
+    [],
+  );
 
   const slotsLoading = availability.status === 'loading';
   const availabilityFailed = availability.status === 'error';
@@ -166,7 +257,17 @@ export default function BookingForm() {
     }
   }, [freeTimes, slotsLoading, values.time]);
 
-  // After a 409, move focus to the refreshed time list.
+  // The suggested time was taken in the meantime (the list above cleared it): ask again.
+  useEffect(() => {
+    const slot = suggestion.slot;
+    if (manualSchedule || suggestion.loading || !slot || slotsLoading) return;
+    if (values.date === slot.date && values.time === '' && suggestionRetries.current < MAX_SUGGESTION_RETRIES) {
+      suggestionRetries.current += 1;
+      setSuggestionNonce((n) => n + 1);
+    }
+  }, [manualSchedule, suggestion, slotsLoading, values.date, values.time]);
+
+  // After a 409 on a manually chosen time, move focus to the refreshed time list.
   useEffect(() => {
     if (focusTimeWhenLoaded.current && availability.status !== 'loading') {
       focusTimeWhenLoaded.current = false;
@@ -182,6 +283,7 @@ export default function BookingForm() {
   // Form
   // ---------------------------------------------------------------------------
   function update<K extends FieldName>(field: K, value: BookingFields[K]) {
+    if (field === 'date' || field === 'time') markManualSchedule();
     const next = { ...values, [field]: value };
     setValues(next);
     setFormError('');
@@ -195,6 +297,12 @@ export default function BookingForm() {
   function toggleService(id: string) {
     const selected = values.services.includes(id);
     update('services', selected ? values.services.filter((s) => s !== id) : [...values.services, id]);
+  }
+
+  function chooseTimeManually() {
+    markManualSchedule();
+    setValues((v) => ({ ...v, date: '', time: '' }));
+    formRef.current?.querySelector<HTMLElement>('[name="date"]')?.focus();
   }
 
   function focusFirstError(fieldErrors: FieldErrors) {
@@ -247,15 +355,24 @@ export default function BookingForm() {
         return;
       }
 
-      // Someone else took the slot between loading the list and submitting.
+      // Someone else took the slot between loading it and submitting.
       if (res.status === 409 || (data && !data.ok && data.code === 'slot_taken')) {
         const message = (data && !data.ok && data.error) || SLOT_TAKEN_ERROR;
         setValues((v) => ({ ...v, time: '' }));
-        setErrors({ time: message });
-        setFormError(message);
         setStatus('error');
-        focusTimeWhenLoaded.current = true;
         void loadAvailability(values.date);
+
+        if (manualScheduleRef.current) {
+          setErrors({ time: message });
+          setFormError(message);
+          focusTimeWhenLoaded.current = true;
+        } else {
+          // The time was auto-filled: offer the next nearest one right away.
+          setErrors({});
+          setFormError(`${message}. We’ve selected the next available time for you.`);
+          suggestionRetries.current = 0;
+          setSuggestionNonce((n) => n + 1);
+        }
         return;
       }
 
@@ -278,6 +395,10 @@ export default function BookingForm() {
     setFormError('');
     setConfirmed(null);
     setStatus('idle');
+    manualScheduleRef.current = false;
+    setManualSchedule(false);
+    suggestionRetries.current = 0;
+    setSuggestionNonce((n) => n + 1);
   }
 
   if (status === 'success' && confirmed) {
@@ -366,6 +487,14 @@ export default function BookingForm() {
 
   const submitting = status === 'submitting';
 
+  const suggestedSlot = suggestion.slot;
+  const isAutoFilled =
+    !manualSchedule &&
+    suggestedSlot !== null &&
+    suggestion.today !== null &&
+    values.date === suggestedSlot.date &&
+    values.time === suggestedSlot.time;
+
   let timePlaceholder = 'Choose a time';
   if (!values.date) timePlaceholder = 'Pick a date first';
   else if (fullyBooked) timePlaceholder = 'Fully booked';
@@ -400,6 +529,45 @@ export default function BookingForm() {
       )}
     </div>
   ) : null;
+
+  let suggestionNotice: ReactNode = null;
+  if (!manualSchedule) {
+    if (isAutoFilled && suggestedSlot && suggestion.today) {
+      suggestionNotice = (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-ochre-500/40 bg-ochre-400/10 px-4 py-2 text-sm">
+          <span className="flex items-center gap-2 text-beige-100">
+            {suggestion.loading && <Spinner className="h-4 w-4 text-ochre-400" />}
+            Nearest available:{' '}
+            <strong className="font-semibold text-ochre-300">{formatSuggestion(suggestedSlot, suggestion.today)}</strong>
+          </span>
+          <button
+            type="button"
+            onClick={chooseTimeManually}
+            className="inline-flex min-h-11 items-center font-semibold text-beige-200 underline underline-offset-4 transition hover:text-ochre-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ochre-400"
+          >
+            choose another time
+          </button>
+        </div>
+      );
+    } else if (suggestion.loading) {
+      suggestionNotice = (
+        <p className="flex min-h-11 items-center gap-2 text-sm text-beige-400">
+          <Spinner className="h-4 w-4 text-ochre-400" />
+          Finding the nearest available time…
+        </p>
+      );
+    } else if (!suggestion.failed && suggestion.today && !suggestedSlot) {
+      suggestionNotice = (
+        <p className="rounded-xl border border-graphite-600 px-4 py-3 text-sm text-beige-300">
+          No free times in the next 14 days. Pick a later date below or call us at{' '}
+          <a href={SHOP.phoneHref} className="text-ochre-300 underline underline-offset-4">
+            {SHOP.phoneDisplay}
+          </a>
+          .
+        </p>
+      );
+    }
+  }
 
   return (
     <form
@@ -449,14 +617,15 @@ export default function BookingForm() {
           {/* The summary is the last child of this wrapper, so on mobile it sticks to the
               bottom of the screen while the list is being scrolled. */}
           <div>
-            <ul className="grid gap-2 sm:grid-cols-2">
+            {/* auto-rows-fr + h-full: every card gets the height of the tallest one. */}
+            <ul className="grid auto-rows-fr gap-2 sm:grid-cols-2">
               {SERVICES.map((service) => {
                 const checked = values.services.includes(service.id);
                 return (
                   <li key={service.id}>
                     <label
                       className={[
-                        'flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition',
+                        'flex h-full min-h-14 cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition',
                         'focus-within:ring-2 focus-within:ring-ochre-400/40',
                         checked
                           ? 'border-ochre-400 bg-ochre-400/10'
@@ -498,18 +667,25 @@ export default function BookingForm() {
           </div>
         </fieldset>
 
-        <Field label="Barber" name="barber" error={errors.barber}>
-          {(p) => (
-            <select {...p} value={values.barber} onChange={(e) => update('barber', e.target.value)}>
-              <option value={ANY_BARBER_ID}>{ANY_BARBER_NAME}</option>
-              {BARBERS.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name} · {b.role}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
+        <div className="sm:col-span-2">
+          <Field label="Barber" name="barber" error={errors.barber}>
+            {(p) => (
+              <select {...p} value={values.barber} onChange={(e) => update('barber', e.target.value)}>
+                <option value={ANY_BARBER_ID}>{ANY_BARBER_NAME}</option>
+                {BARBERS.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name} · {b.role}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+        </div>
+
+        {/* Label for the auto-filled date and time, directly above both fields. */}
+        <div className="-mb-2 sm:col-span-2" aria-live="polite">
+          {suggestionNotice}
+        </div>
 
         <Field label="Date" name="date" error={errors.date}>
           {(p) => (
