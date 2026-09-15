@@ -33,7 +33,7 @@ export default function Header() {
             className={iconButton}
             aria-label="Message us on LINE (opens in a new tab)"
           >
-            <LineIcon className="h-[18px] w-[18px] text-[#06C755]" />
+            <LineIcon className="h-[18px] w-[18px] text-brand-line" />
             <span className="hidden sm:inline">LINE</span>
           </a>
           <a href="#booking" className="btn-primary ml-0.5 whitespace-nowrap px-3.5 tracking-normal sm:ml-1 sm:px-5 sm:tracking-wider">

@@ -28,6 +28,11 @@ const config: Config = {
           600: '#9d6b1a',
         },
         danger: '#ef8a74',
+        // Messenger brand greens, muted to sit calmly on graphite.
+        brand: {
+          whatsapp: '#7db89a',
+          line: '#74b386',
+        },
       },
       fontFamily: {
         display: ['var(--font-display)', 'Impact', 'sans-serif'],

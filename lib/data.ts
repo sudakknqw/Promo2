@@ -1,12 +1,23 @@
 // Static site content and business rules. Safe to import on client and server.
 
+/**
+ * Messenger contacts. Fictional placeholders: replace with the real ones.
+ * - whatsappNumber: digits only, country code first, no "+" or spaces (wa.me format).
+ * - lineId: LINE Official Account ID, including "@".
+ */
+export const MESSENGERS = {
+  whatsappNumber: '6620000000',
+  lineId: '@sharpbarberbkk',
+} as const;
+
 export const SHOP = {
   name: 'Sharp Barber Bangkok',
   slogan: 'Clean fades. Hot towels. No rush.',
   // Fictional contact details: replace before using for a real business.
   phoneDisplay: '+66 2 000 0000',
   phoneHref: 'tel:+6620000000',
-  lineUrl: 'https://line.me/',
+  // "Add friend" link for the LINE Official Account. "@" must be encoded as %40.
+  lineUrl: `https://line.me/R/ti/p/${encodeURIComponent(MESSENGERS.lineId)}`,
   address: {
     line1: '88 Sukhumvit Soi 11',
     line2: 'Khlong Toei Nuea, Watthana',

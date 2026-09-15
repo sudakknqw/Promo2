@@ -40,7 +40,7 @@ export default function Location() {
                   Call
                 </a>
                 <a href={SHOP.lineUrl} target="_blank" rel="noopener noreferrer" className="btn-ghost">
-                  <LineIcon className="h-4 w-4 text-[#06C755]" />
+                  <LineIcon className="h-4 w-4 text-brand-line" />
                   LINE
                 </a>
               </div>

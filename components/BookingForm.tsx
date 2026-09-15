@@ -32,6 +32,7 @@ import {
 } from '@/lib/validation';
 
 import { CalendarIcon } from './icons';
+import MessengerBooking from './MessengerBooking';
 
 type ConfirmedBooking = {
   name: string;
@@ -486,6 +487,7 @@ export default function BookingForm() {
   }
 
   const submitting = status === 'submitting';
+  const includeScheduleInMessage = manualSchedule || values.services.length > 0 || values.barber !== ANY_BARBER_ID;
 
   const suggestedSlot = suggestion.slot;
   const isAutoFilled =
@@ -792,6 +794,18 @@ export default function BookingForm() {
       <p className="mt-4 text-xs text-beige-400">
         By booking you agree that we may contact you about this appointment. Pay at the shop, no deposit needed.
       </p>
+
+      {/* The auto-filled nearest time counts only once the user has chosen something themselves;
+          with an untouched form the message stays generic. */}
+      <MessengerBooking
+        draft={{
+          name: values.name,
+          services: values.services,
+          barber: values.barber,
+          date: includeScheduleInMessage ? values.date : '',
+          time: includeScheduleInMessage ? values.time : '',
+        }}
+      />
     </form>
   );
 }

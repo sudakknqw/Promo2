@@ -26,6 +26,24 @@ export function LineIcon(props: IconProps) {
   );
 }
 
+export function WhatsAppIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden {...props}>
+      <path
+        d="M12 2.75a9.25 9.25 0 0 0-7.98 13.93L2.75 21.25l4.7-1.23A9.25 9.25 0 1 0 12 2.75Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.03 7.55c.18-.4.37-.41.54-.42h.46c.16 0 .41.06.63.3.21.24.83.8.83 1.96s-.85 2.27-.97 2.43c-.12.16.02.36.09.46.08.1 1.1 1.73 2.7 2.37 1.33.52 1.6.42 1.9.39.28-.03.92-.37 1.05-.74.13-.36.13-.67.09-.74-.04-.06-.14-.1-.3-.18l-1.52-.73c-.2-.07-.35-.1-.5.12-.14.22-.57.72-.7.87-.13.15-.26.17-.48.06a6.1 6.1 0 0 1-3-2.6c-.23-.39.22-.36.64-1.2.07-.14.04-.27-.02-.38l-.7-1.66c-.16-.4-.33-.39-.46-.39"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 export function ClockIcon(props: IconProps) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden {...stroke} {...props}>
