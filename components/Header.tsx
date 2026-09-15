@@ -10,8 +10,13 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-50 border-b border-graphite-700/80 bg-graphite-950/85 backdrop-blur-md">
       <div className="container-page flex h-16 items-center justify-between gap-2">
-        <a href="#top" aria-label={`${SHOP.name}, back to top`} className="shrink-0 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ochre-400">
-          <Logo />
+        <a
+          href="#top"
+          aria-label={`${SHOP.name}, back to top`}
+          className="group shrink-0 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ochre-400"
+        >
+          {/* On very narrow screens only the icon stays. */}
+          <Logo hideTextOnNarrow />
         </a>
 
         <nav aria-label="Primary" className="hidden items-center gap-6 text-sm text-beige-300 lg:flex">

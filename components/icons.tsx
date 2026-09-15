@@ -79,15 +79,6 @@ export function StarIcon(props: IconProps) {
   );
 }
 
-export function RazorIcon(props: IconProps) {
-  return (
-    <svg viewBox="0 0 32 32" aria-hidden {...props}>
-      <path d="M4 20 20 4h6v4L10 24H4v-4Z" fill="currentColor" />
-      <path d="m10 24 3 3a2.1 2.1 0 0 0 3 0l2-2-5-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 export function InstagramIcon(props: IconProps) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden {...stroke} {...props}>
