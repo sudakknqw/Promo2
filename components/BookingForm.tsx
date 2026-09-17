@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 
 import { findNextAvailableDate, getSlotStates, type BusyInterval } from '@/lib/availability';
 import { buildBookingEvent, googleCalendarUrl } from '@/lib/calendar';
-import { ANY_BARBER_ID, BARBERS, SERVICES, SHOP, SLOT_STEP_MIN, formatPrice } from '@/lib/data';
+import { ANY_BARBER_ID, BARBERS, SERVICES, SHOP, SLOT_STEP_MIN, WEEK_ORDER, formatPrice } from '@/lib/data';
+import { INTL_LOCALES } from '@/lib/i18n/config';
 import { LOCALE_SWITCH_EVENT, clearBookingDraft, peekBookingDraft, saveBookingDraft } from '@/lib/i18n/locale-switch';
 import {
   barberText,
@@ -32,6 +33,7 @@ import {
   type FieldName,
 } from '@/lib/validation';
 
+import DatePicker from './DatePicker';
 import { useI18n } from './I18nProvider';
 import { CalendarIcon } from './icons';
 import MessengerBooking from './MessengerBooking';
@@ -770,13 +772,19 @@ export default function BookingForm() {
 
         <Field label={f.date} name="date" error={errorText('date')}>
           {(p) => (
-            <input
+            <DatePicker
               {...p}
-              type="date"
+              label={f.date}
+              value={values.date}
+              onChange={(date) => update('date', date)}
               min={dateBounds?.min}
               max={dateBounds?.max}
-              value={values.date}
-              onChange={(e) => update('date', e.target.value)}
+              today={dateBounds?.min}
+              placeholder={f.datePlaceholder}
+              locale={INTL_LOCALES[locale]}
+              weekdays={WEEK_ORDER.map((day) => dict.time.daysShort[day])}
+              formatValue={(date) => formatDate(date, locale, dict)}
+              labels={f.calendar}
             />
           )}
         </Field>
@@ -991,8 +999,8 @@ function Field({
   const describedBy = error ? `${id}-error` : hint ? `${id}-hint` : undefined;
 
   const className = [
-    // Fixed height, not min-height: a native date input is taller than a text input or the Select button,
-    // so only an explicit height keeps every single-line field identical (in both languages).
+    // Fixed height, not min-height: text inputs and the Select / DatePicker buttons stay exactly the same size
+    // in both languages.
     'block h-12 w-full rounded-xl border bg-graphite-900 px-4 text-base text-beige-50 placeholder:text-graphite-400',
     'transition focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-60',
     error

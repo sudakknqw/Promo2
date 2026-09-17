@@ -135,6 +135,12 @@
       "barber": "ช่าง",
       "anyBarber": "ช่างคนไหนก็ได้ที่ว่าง",
       "date": "วันที่",
+      "datePlaceholder": "เลือกวันที่",
+      "calendar": {
+        "previousMonth": "เดือนก่อนหน้า",
+        "nextMonth": "เดือนถัดไป",
+        "today": "วันนี้"
+      },
       "time": "เวลา",
       "comment": "หมายเหตุ",
       "optional": "(ไม่บังคับ)",

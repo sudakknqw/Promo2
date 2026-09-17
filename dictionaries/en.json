@@ -135,6 +135,12 @@
       "barber": "Barber",
       "anyBarber": "Any available barber",
       "date": "Date",
+      "datePlaceholder": "Choose a date",
+      "calendar": {
+        "previousMonth": "Previous month",
+        "nextMonth": "Next month",
+        "today": "Today"
+      },
       "time": "Time",
       "comment": "Comment",
       "optional": "(optional)",

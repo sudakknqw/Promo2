@@ -25,11 +25,6 @@
     @apply bg-ochre-400 text-graphite-950;
   }
 
-  input[type='date']::-webkit-calendar-picker-indicator {
-    filter: invert(70%) sepia(60%) saturate(500%) hue-rotate(350deg);
-    cursor: pointer;
-  }
-
   @media (prefers-reduced-motion: reduce) {
     html {
       scroll-behavior: auto;
