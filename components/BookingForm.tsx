@@ -35,6 +35,7 @@ import {
 import { useI18n } from './I18nProvider';
 import { CalendarIcon } from './icons';
 import MessengerBooking from './MessengerBooking';
+import Select from './Select';
 
 type ConfirmedBooking = {
   name: string;
@@ -745,17 +746,19 @@ export default function BookingForm() {
         <div className="sm:col-span-2">
           <Field label={f.barber} name="barber" error={errorText('barber')}>
             {(p) => (
-              <select {...p} value={values.barber} onChange={(e) => update('barber', e.target.value)}>
-                <option value={ANY_BARBER_ID}>{f.anyBarber}</option>
-                {BARBERS.map((b) => {
-                  const text = barberText(dict, b.id);
-                  return (
-                    <option key={b.id} value={b.id}>
-                      {text.name} · {text.role}
-                    </option>
-                  );
-                })}
-              </select>
+              <Select
+                {...p}
+                label={f.barber}
+                value={values.barber}
+                onChange={(barber) => update('barber', barber)}
+                options={[
+                  { value: ANY_BARBER_ID, label: f.anyBarber },
+                  ...BARBERS.map((b) => {
+                    const text = barberText(dict, b.id);
+                    return { value: b.id, label: `${text.name} · ${text.role}` };
+                  }),
+                ]}
+              />
             )}
           </Field>
         </div>
@@ -790,21 +793,19 @@ export default function BookingForm() {
                 {f.slots.checking}
               </div>
             ) : (
-              <select
+              <Select
                 {...p}
+                label={f.time}
                 value={values.time}
+                placeholder={timePlaceholder}
                 disabled={freeTimes.length === 0}
-                onChange={(e) => update('time', e.target.value)}
-              >
-                <option value="" disabled>
-                  {timePlaceholder}
-                </option>
-                {slotStates.map((slot) => (
-                  <option key={slot.time} value={slot.time} disabled={slot.booked}>
-                    {slot.booked ? interpolate(f.slots.booked, { time: slot.time }) : slot.time}
-                  </option>
-                ))}
-              </select>
+                onChange={(time) => update('time', time)}
+                options={slotStates.map((slot) => ({
+                  value: slot.time,
+                  label: slot.booked ? interpolate(f.slots.booked, { time: slot.time }) : slot.time,
+                  disabled: slot.booked,
+                }))}
+              />
             )
           }
         </Field>
@@ -825,7 +826,7 @@ export default function BookingForm() {
                 placeholder={f.commentPlaceholder}
                 value={values.comment}
                 onChange={(e) => update('comment', e.target.value)}
-                className={`${p.className} resize-y`}
+                className={`${p.className} !h-auto py-3 resize-y`}
               />
             )}
           </Field>
@@ -990,7 +991,9 @@ function Field({
   const describedBy = error ? `${id}-error` : hint ? `${id}-hint` : undefined;
 
   const className = [
-    'block w-full min-h-12 rounded-xl border bg-graphite-900 px-4 py-3 text-base text-beige-50 placeholder:text-graphite-400',
+    // Fixed height, not min-height: a native date input is taller than a text input or the Select button,
+    // so only an explicit height keeps every single-line field identical (in both languages).
+    'block h-12 w-full rounded-xl border bg-graphite-900 px-4 text-base text-beige-50 placeholder:text-graphite-400',
     'transition focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-60',
     error
       ? 'border-danger focus:border-danger focus:ring-danger/40'

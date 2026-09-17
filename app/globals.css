@@ -25,15 +25,6 @@
     @apply bg-ochre-400 text-graphite-950;
   }
 
-  form select {
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23d8a03e' stroke-width='2'%3E%3Cpath d='M5 7.5l5 5 5-5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    background-position: right 0.9rem center;
-    background-repeat: no-repeat;
-    background-size: 1.1rem;
-    padding-right: 2.75rem;
-  }
-
   input[type='date']::-webkit-calendar-picker-indicator {
     filter: invert(70%) sepia(60%) saturate(500%) hue-rotate(350deg);
     cursor: pointer;

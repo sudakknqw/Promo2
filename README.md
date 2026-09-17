@@ -132,6 +132,7 @@ components/
   Reviews.tsx, Location.tsx, Footer.tsx        секции страницы (серверные)
   BookingForm.tsx            форма записи (клиентская): валидация, слоты, итог, успех
   MessengerBooking.tsx       блок «or book in one message» (WhatsApp / LINE)
+  Select.tsx                 выпадающий список в стиле сайта вместо нативного <select> (клавиатура, ARIA)
   LanguageSwitcher.tsx       переключатель EN / TH
   LocaleScrollRestorer.tsx   восстановление прокрутки после смены языка
   I18nProvider.tsx           контекст словаря для клиентских компонентов
